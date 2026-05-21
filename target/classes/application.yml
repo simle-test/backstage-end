@@ -1,0 +1,31 @@
+
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+
+spring:
+  datasource:
+    url: jdbc:postgresql://124.222.105.118:5432/example_db?createDatabaseIfNotExist=true&useUnicode=true&characterEncoding=utf-8
+    username: slq
+    password: slq0623
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+# JWT配置
+jwt:
+  secret: example-backstage-jwt-secret-key-2024
+  expiration: 86400000
+
+# 日志配置
+logging:
+  level:
+    com.example.backstage: DEBUG
+    org.springframework.security: INFO

@@ -1,0 +1,8 @@
+const modules_map={
+      "political_theory":"政治理论",
+      "quantity_relation":"数量关系",
+      "material_analysis":"资料分析",
+      "common_sense_judgment":"常识判断",
+      "logical_judgment":"判断推理",
+      "language_understanding":"言语理解"
+    }
