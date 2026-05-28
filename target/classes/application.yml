@@ -5,8 +5,10 @@ server:
     context-path: /api
 
 spring:
+  main:
+    allow-circular-references: true
   datasource:
-    url: jdbc:postgresql://124.222.105.118:5432/example_db?createDatabaseIfNotExist=true&useUnicode=true&characterEncoding=utf-8
+    url: jdbc:postgresql://124.222.105.118:5432/test
     username: slq
     password: slq0623
     driver-class-name: org.postgresql.Driver

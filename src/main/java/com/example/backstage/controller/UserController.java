@@ -2,6 +2,8 @@
 package com.example.backstage.controller;
 
 import com.example.backstage.dto.response.ApiResponse;
+import com.example.backstage.dto.response.UserListResponse;
+import com.example.backstage.dto.response.UserStatisticsResponse;
 import com.example.backstage.entity.User;
 import com.example.backstage.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +20,40 @@ import org.springframework.web.bind.annotation.*;
 public class UserController {
 
     private final UserService userService;
+
+    /**
+     * 获取用户列表
+     */
+    @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<UserListResponse>> getUserList(
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(defaultValue = "10") Integer size,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String role) {
+        UserListResponse response = userService.getUserList(page, size, keyword, role);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * 获取用户统计
+     */
+    @GetMapping("/statistics")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<UserStatisticsResponse>> getUserStatistics() {
+        UserStatisticsResponse response = userService.getUserStatistics();
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * 添加用户
+     */
+    @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<User>> addUser(@RequestBody User user) {
+        User newUser = userService.addUser(user);
+        return ResponseEntity.ok(ApiResponse.success("添加成功", newUser));
+    }
 
     /**
      * 获取当前登录用户信息

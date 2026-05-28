@@ -2,6 +2,8 @@
 package com.example.backstage.exception;
 
 import com.example.backstage.dto.response.ApiResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -15,10 +17,12 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * 全局异常处理器
- */
+     * 全局异常处理器
+     */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     /**
      * 处理认证异常
@@ -67,6 +71,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleException(Exception e) {
+        log.error("服务器内部错误", e);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ApiResponse.error(500, "服务器内部错误"));
     }

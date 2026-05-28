@@ -2,6 +2,8 @@
 package com.example.backstage.repository;
 
 import com.example.backstage.entity.User;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -32,4 +34,14 @@ public interface UserRepository extends JpaRepository<User, Long> {
      * 检查邮箱是否存在
      */
     boolean existsByEmail(String email);
+
+    /**
+     * 分页查询用户
+     */
+    Page<User> findByRoleContainingAndUsernameContaining(String role, String username, Pageable pageable);
+
+    /**
+     * 根据状态统计用户数
+     */
+    long countByStatus(String status);
 }

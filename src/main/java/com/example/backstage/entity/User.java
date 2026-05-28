@@ -17,7 +17,7 @@ import java.util.Date;
  * 用户实体类
  */
 @Entity
-@Table(name = "users")
+@Table(name = "end_users")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -46,9 +46,24 @@ public class User implements UserDetails {
     @Column(nullable = false)
     private Boolean enabled = true;
 
-    @Column(name = "created_at", updatable = false)
+    @Column(length = 20)
+    private String status = "active";
+
+    @Column(length = 255)
+    private String avatar;
+
+    @Column(name = "avatar_color", length = 50)
+    private String avatarColor;
+
+    @Column(name = "practice_count", nullable = false)
+    private Integer practiceCount = 0;
+
+    @Column(name = "pass_rate", nullable = false)
+    private Double passRate = 0.0;
+
+    @Column(name = "join_date", nullable = false, updatable = false)
     @Temporal(TemporalType.TIMESTAMP)
-    private Date createdAt;
+    private Date joinDate;
 
     @Column(name = "updated_at")
     @Temporal(TemporalType.TIMESTAMP)
@@ -56,8 +71,20 @@ public class User implements UserDetails {
 
     @PrePersist
     protected void onCreate() {
-        createdAt = new Date();
+        joinDate = new Date();
         updatedAt = new Date();
+        if (role == null) {
+            role = "user";
+        }
+        if (status == null) {
+            status = "active";
+        }
+        if (practiceCount == null) {
+            practiceCount = 0;
+        }
+        if (passRate == null) {
+            passRate = 0.0;
+        }
     }
 
     @PreUpdate
@@ -88,5 +115,10 @@ public class User implements UserDetails {
     @Override
     public boolean isEnabled() {
         return enabled != null && enabled;
+    }
+
+    @Override
+    public String getUsername() {
+        return username;
     }
 }
