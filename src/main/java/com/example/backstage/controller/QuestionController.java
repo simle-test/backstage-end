@@ -7,7 +7,6 @@ import com.example.backstage.dto.response.QuestionDetailResponse;
 import com.example.backstage.dto.response.QuestionListResponse;
 import com.example.backstage.dto.response.QuestionStatisticsResponse;
 import com.example.backstage.service.QuestionService;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -16,10 +15,13 @@ import org.springframework.web.bind.annotation.*;
  */
 @RestController
 @RequestMapping("/questions")
-@RequiredArgsConstructor
 public class QuestionController {
 
     private final QuestionService questionService;
+
+    public QuestionController(QuestionService questionService) {
+        this.questionService = questionService;
+    }
 
     /**
      * 获取题目列表

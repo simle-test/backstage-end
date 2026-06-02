@@ -1,108 +1,54 @@
-
 package com.example.backstage.service.impl;
 
 import com.example.backstage.dto.request.LoginRequest;
-import com.example.backstage.dto.request.RegisterRequest;
 import com.example.backstage.dto.response.*;
 import com.example.backstage.entity.User;
 import com.example.backstage.repository.UserRepository;
 import com.example.backstage.service.UserService;
 import com.example.backstage.util.JwtUtil;
-import lombok.RequiredArgsConstructor;
-import org.springframework.context.ApplicationContext;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.text.SimpleDateFormat;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.stream.Collectors;
 
 /**
  * 用户服务实现类
  */
 @Service
-@RequiredArgsConstructor
 public class UserServiceImpl implements UserService {
 
     private final UserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
-    private final ApplicationContext applicationContext;
     
-    private AuthenticationManager authenticationManager;
-    
-    private AuthenticationManager getAuthenticationManager() {
-        if (authenticationManager == null) {
-            authenticationManager = applicationContext.getBean(AuthenticationManager.class);
-        }
-        return authenticationManager;
-    }
-
-    private static final Map<String, String> ROLE_MAP = new HashMap<>();
-    static {
-        ROLE_MAP.put("ROLE_USER", "普通用户");
-        ROLE_MAP.put("ROLE_ADMIN", "管理员");
-        ROLE_MAP.put("ROLE_VIP", "VIP用户");
-    }
-
-    private static final Map<String, String> STATUS_MAP = new HashMap<>();
-    static {
-        STATUS_MAP.put("active", "正常");
-        STATUS_MAP.put("inactive", "未激活");
-        STATUS_MAP.put("banned", "禁用");
+    public UserServiceImpl(UserRepository userRepository, JwtUtil jwtUtil) {
+        this.userRepository = userRepository;
+        this.jwtUtil = jwtUtil;
     }
 
     @Override
     public LoginResponse login(LoginRequest request) {
-        Authentication authentication = getAuthenticationManager().authenticate(
-                new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
-        );
+        User user = userRepository.findByUsername(request.getUsername())
+                .orElseThrow(() -> new RuntimeException("用户名或密码错误"));
+        
+        if (!request.getPassword().equals(user.getPassword())) {
+            throw new RuntimeException("用户名或密码错误");
+        }
 
-        User user = (User) authentication.getPrincipal();
         String token = jwtUtil.generateToken(user);
 
         LoginResponse.UserInfo userInfo = new LoginResponse.UserInfo(
-                user.getId(),
+                user.getUserId().longValue(),
                 user.getUsername(),
-                user.getEmail(),
-                user.getPhone(),
-                user.getRole()
+                "",
+                "",
+                "ROLE_USER"
         );
 
         return new LoginResponse(token, jwtUtil.getExpiration(), userInfo);
-    }
-
-    @Override
-    @Transactional
-    public User register(RegisterRequest request) {
-        if (userRepository.existsByUsername(request.getUsername())) {
-            throw new RuntimeException("用户名已存在");
-        }
-
-        if (userRepository.existsByEmail(request.getEmail())) {
-            throw new RuntimeException("邮箱已存在");
-        }
-
-        User user = new User();
-        user.setUsername(request.getUsername());
-        user.setPassword(passwordEncoder.encode(request.getPassword()));
-        user.setEmail(request.getEmail());
-        user.setPhone(request.getPhone());
-        user.setRole("ROLE_USER");
-        user.setEnabled(true);
-        user.setStatus("active");
-
-        return userRepository.save(user);
     }
 
     @Override
@@ -113,31 +59,43 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public User findById(Long id) {
-        return userRepository.findById(id)
+        return userRepository.findById(id.intValue())
                 .orElseThrow(() -> new RuntimeException("用户不存在: " + id));
     }
 
     @Override
     public UserListResponse getUserList(Integer page, Integer size, String keyword, String role) {
-        Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "id"));
+        List<User> allUsers = userRepository.findAll();
         
-        Page<User> userPage;
-        if (keyword == null) keyword = "";
-        if (role == null) role = "";
-        
-        userPage = userRepository.findByRoleContainingAndUsernameContaining(role, keyword, pageable);
-        
-        List<UserListItem> list = userPage.getContent().stream()
+        List<UserListItem> filteredList = allUsers.stream()
+            .filter(user -> {
+                if (keyword != null && !keyword.isEmpty()) {
+                    String kw = keyword.toLowerCase();
+                    return user.getUsername().toLowerCase().contains(kw);
+                }
+                return true;
+            })
             .map(this::convertToListItem)
             .collect(Collectors.toList());
         
-        return new UserListResponse(list, userPage.getTotalElements(), page, size);
+        int total = filteredList.size();
+        int start = (page - 1) * size;
+        int end = Math.min(start + size, total);
+        
+        List<UserListItem> pagedList;
+        if (start >= total) {
+            pagedList = new ArrayList<>();
+        } else {
+            pagedList = new ArrayList<>(filteredList.subList(start, end));
+        }
+        
+        return new UserListResponse(pagedList, (long) total, page, size);
     }
 
     @Override
     public UserStatisticsResponse getUserStatistics() {
         long total = userRepository.count();
-        long active = userRepository.countByStatus("active");
+        long active = total;
         long todayNew = 0;
         
         return new UserStatisticsResponse(total, active, todayNew, 85.0);
@@ -149,20 +107,6 @@ public class UserServiceImpl implements UserService {
         if (userRepository.existsByUsername(user.getUsername())) {
             throw new RuntimeException("用户名已存在");
         }
-
-        if (userRepository.existsByEmail(user.getEmail())) {
-            throw new RuntimeException("邮箱已存在");
-        }
-
-        user.setPassword(passwordEncoder.encode(user.getPassword()));
-        if (user.getRole() == null) {
-            user.setRole("ROLE_USER");
-        }
-        if (user.getStatus() == null) {
-            user.setStatus("active");
-        }
-        user.setEnabled(true);
-
         return userRepository.save(user);
     }
 
@@ -175,27 +119,16 @@ public class UserServiceImpl implements UserService {
             existingUser.setUsername(user.getUsername());
         }
         
-        if (user.getEmail() != null && !user.getEmail().equals(existingUser.getEmail())) {
-            if (userRepository.existsByEmail(user.getEmail())) {
-                throw new RuntimeException("邮箱已被使用");
-            }
-            existingUser.setEmail(user.getEmail());
+        if (user.getWechatOpenid() != null) {
+            existingUser.setWechatOpenid(user.getWechatOpenid());
         }
         
-        if (user.getPhone() != null) {
-            existingUser.setPhone(user.getPhone());
+        if (user.getPassword() != null) {
+            existingUser.setPassword(user.getPassword());
         }
         
-        if (user.getRole() != null) {
-            existingUser.setRole(user.getRole());
-        }
-        
-        if (user.getStatus() != null) {
-            existingUser.setStatus(user.getStatus());
-        }
-        
-        if (user.getAvatar() != null) {
-            existingUser.setAvatar(user.getAvatar());
+        if (user.getAvatarUrl() != null) {
+            existingUser.setAvatarUrl(user.getAvatarUrl());
         }
         
         return userRepository.save(existingUser);
@@ -204,10 +137,10 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional
     public void deleteUser(Long id) {
-        if (!userRepository.existsById(id)) {
+        if (!userRepository.existsById(id.intValue())) {
             throw new RuntimeException("用户不存在: " + id);
         }
-        userRepository.deleteById(id);
+        userRepository.deleteById(id.intValue());
     }
 
     @Override
@@ -216,22 +149,47 @@ public class UserServiceImpl implements UserService {
     }
 
     private UserListItem convertToListItem(User user) {
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
-        String joinDate = user.getCreatedAt() != null ? sdf.format(user.getCreatedAt()) : "";
+        String avatarStr = "U";
+        if (user.getUsername() != null && !user.getUsername().isEmpty()) {
+            avatarStr = String.valueOf(user.getUsername().charAt(0)).toUpperCase();
+        }
         
-        return new UserListItem(
-            user.getId(),
-            user.getUsername(),
-            user.getEmail(),
-            user.getRole(),
-            ROLE_MAP.getOrDefault(user.getRole(), user.getRole()),
-            0L,
-            0.0,
-            joinDate,
-            user.getStatus(),
-            STATUS_MAP.getOrDefault(user.getStatus(), user.getStatus()),
-            user.getAvatar() != null ? user.getAvatar() : String.valueOf(user.getUsername().charAt(0)),
-            "#" + Integer.toHexString((user.getId().intValue() * 0x33) % 0xFFFFFF).substring(0, 6)
-        );
+        String colorStr = "#3498db";
+        if (user.getUserId() != null) {
+            String hex = Integer.toHexString((user.getUserId() * 0x33) % 0xFFFFFF);
+            while (hex.length() < 6) {
+                hex = "0" + hex;
+            }
+            colorStr = "#" + hex.substring(0, 6);
+        }
+        
+        UserListItem item = new UserListItem();
+        item.setId(user.getUserId().longValue());
+        item.setUsername(user.getUsername() != null ? user.getUsername() : "");
+        item.setEmail("");
+        item.setRole("ROLE_USER");
+        item.setRoleText("普通用户");
+        item.setPracticeCount(0L);
+        item.setPassRate(0.0);
+        item.setJoinDate("");
+        item.setStatus("active");
+        item.setStatusText("正常");
+        item.setAvatar(avatarStr);
+        item.setColor(colorStr);
+        
+        return item;
+    }
+
+    @Override
+    public User register(com.example.backstage.dto.request.RegisterRequest request) {
+        if (userRepository.existsByUsername(request.getUsername())) {
+            throw new RuntimeException("用户名已存在");
+        }
+
+        User user = new User();
+        user.setUsername(request.getUsername());
+        user.setPassword(request.getPassword());
+
+        return userRepository.save(user);
     }
 }

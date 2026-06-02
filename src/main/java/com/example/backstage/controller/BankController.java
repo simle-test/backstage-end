@@ -6,7 +6,6 @@ import com.example.backstage.dto.response.ApiResponse;
 import com.example.backstage.dto.response.BankDetailResponse;
 import com.example.backstage.dto.response.BankResponse;
 import com.example.backstage.service.BankService;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -17,10 +16,13 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/banks")
-@RequiredArgsConstructor
 public class BankController {
 
     private final BankService bankService;
+
+    public BankController(BankService bankService) {
+        this.bankService = bankService;
+    }
 
     /**
      * 获取题库列表

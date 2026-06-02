@@ -1,100 +1,44 @@
-
 package com.example.backstage.entity;
 
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Date;
 
 /**
  * 用户实体类
  */
 @Entity
-@Table(name = "end_users")
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
+@Table(name = "users")
 public class User implements UserDetails {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "user_seq")
-    @SequenceGenerator(name = "user_seq", sequenceName = "user_id_seq", allocationSize = 1)
-    private Long id;
+    @Column(name = "user_id")
+    private Integer userId;
 
-    @Column(unique = true, nullable = false, length = 50)
+    @Column(name = "wechat_openid", length = 100)
+    private String wechatOpenid;
+
+    @Column(length = 100)
     private String username;
 
-    @Column(nullable = false, length = 255)
+    @Column(length = 10)
     private String password;
 
-    @Column(nullable = false, length = 100)
-    private String email;
+    @Column(name = "avatar_url")
+    private String avatarUrl;
 
-    @Column(length = 20)
-    private String phone;
-
-    @Column(nullable = false)
-    private String role;
-
-    @Column(nullable = false)
-    private Boolean enabled = true;
-
-    @Column(length = 20)
-    private String status = "active";
-
-    @Column(length = 255)
-    private String avatar;
-
-    @Column(name = "avatar_color", length = 50)
-    private String avatarColor;
-
-    @Column(name = "practice_count", nullable = false)
-    private Integer practiceCount = 0;
-
-    @Column(name = "pass_rate", nullable = false)
-    private Double passRate = 0.0;
-
-    @Column(name = "join_date", nullable = false, updatable = false)
-    @Temporal(TemporalType.TIMESTAMP)
-    private Date joinDate;
-
-    @Column(name = "updated_at")
-    @Temporal(TemporalType.TIMESTAMP)
-    private Date updatedAt;
-
-    @PrePersist
-    protected void onCreate() {
-        joinDate = new Date();
-        updatedAt = new Date();
-        if (role == null) {
-            role = "user";
-        }
-        if (status == null) {
-            status = "active";
-        }
-        if (practiceCount == null) {
-            practiceCount = 0;
-        }
-        if (passRate == null) {
-            passRate = 0.0;
-        }
-    }
-
-    @PreUpdate
-    protected void onUpdate() {
-        updatedAt = new Date();
-    }
+    @Column(name = "data_id")
+    private Integer dataid;
 
     @Override
+    @JsonIgnore
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        return Collections.singletonList(new SimpleGrantedAuthority(role));
+        return Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"));
     }
 
     @Override
@@ -114,11 +58,24 @@ public class User implements UserDetails {
 
     @Override
     public boolean isEnabled() {
-        return enabled != null && enabled;
+        return true;
     }
 
     @Override
     public String getUsername() {
         return username;
     }
+
+    // Getters and Setters
+    public Integer getUserId() { return userId; }
+    public void setUserId(Integer userId) { this.userId = userId; }
+    public String getWechatOpenid() { return wechatOpenid; }
+    public void setWechatOpenid(String wechatOpenid) { this.wechatOpenid = wechatOpenid; }
+    public void setUsername(String username) { this.username = username; }
+    public String getPassword() { return password; }
+    public void setPassword(String password) { this.password = password; }
+    public String getAvatarUrl() { return avatarUrl; }
+    public void setAvatarUrl(String avatarUrl) { this.avatarUrl = avatarUrl; }
+    public Integer getDataid() { return dataid; }
+    public void setDataid(Integer dataid) { this.dataid = dataid; }
 }

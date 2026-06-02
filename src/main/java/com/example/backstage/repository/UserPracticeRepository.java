@@ -17,29 +17,48 @@ public interface UserPracticeRepository extends JpaRepository<UserPractice, Inte
     /**
      * 查询用户刷题总数
      */
-    long countByUserId(Integer userId);
+    @Query("SELECT COUNT(up) FROM UserPractice up WHERE up.user.userId = :userId")
+    long countByUserId(@Param("userId") Integer userId);
 
     /**
      * 查询用户正确数
      */
-    @Query("SELECT COUNT(up) FROM UserPractice up WHERE up.user.id = :userId AND up.isCorrect = true")
+    @Query("SELECT COUNT(up) FROM UserPractice up WHERE up.user.userId = :userId AND up.isCorrect = true")
     long countCorrectByUserId(@Param("userId") Integer userId);
 
     /**
      * 查询每日提交数
      */
-    @Query("SELECT DATE(up.createdAt) as day, COUNT(up) as count FROM UserPractice up WHERE up.createdAt >= :startDate GROUP BY DATE(up.createdAt)")
-    Object[] countDailySubmissions(@Param("startDate") LocalDateTime startDate);
+    @Query("SELECT CAST(up.createdAt AS DATE) as day, COUNT(up) as count FROM UserPractice up WHERE up.createdAt >= :startDate GROUP BY CAST(up.createdAt AS DATE) ORDER BY day")
+    java.util.List<Object[]> countDailySubmissions(@Param("startDate") LocalDateTime startDate);
 
     /**
      * 查询各分类的正确数
      */
-    @Query("SELECT up.question.categoryId, COUNT(up) FROM UserPractice up WHERE up.user.id = :userId AND up.isCorrect = true GROUP BY up.question.categoryId")
-    Object[] countCorrectByCategory(@Param("userId") Integer userId);
+    @Query("SELECT up.question.categoryId, COUNT(up) FROM UserPractice up WHERE up.user.userId = :userId AND up.isCorrect = true GROUP BY up.question.categoryId")
+    java.util.List<Object[]> countCorrectByCategory(@Param("userId") Integer userId);
 
     /**
      * 查询刷题排行榜
      */
-    @Query("SELECT up.user.id, up.user.username, COUNT(up) as solved FROM UserPractice up GROUP BY up.user.id, up.user.username ORDER BY solved DESC")
-    Object[] findRanking();
+    @Query("SELECT up.user.userId, up.user.username, COUNT(up) as solved FROM UserPractice up GROUP BY up.user.userId, up.user.username ORDER BY solved DESC")
+    java.util.List<Object[]> findRanking();
+
+    /**
+     * 查询总正确数
+     */
+    @Query("SELECT COUNT(up) FROM UserPractice up WHERE up.isCorrect = true")
+    long countAllCorrect();
+
+    /**
+     * 查询各分类的总提交数和正确数
+     */
+    @Query("SELECT up.question.categoryName, COUNT(up), SUM(CASE WHEN up.isCorrect THEN 1 ELSE 0 END) FROM UserPractice up GROUP BY up.question.categoryName")
+    java.util.List<Object[]> countByCategory();
+
+    /**
+     * 查询本周新增用户数
+     */
+    @Query("SELECT COUNT(DISTINCT up.user.userId) FROM UserPractice up WHERE up.createdAt >= :startDate")
+    long countActiveUsersSince(@Param("startDate") LocalDateTime startDate);
 }

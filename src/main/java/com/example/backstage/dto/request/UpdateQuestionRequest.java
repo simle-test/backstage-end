@@ -16,6 +16,9 @@ public class UpdateQuestionRequest {
     private String analysis;
     private Integer bankId;
     private String status;
+    private String questionContent;
+    private String source;
+    private Integer year;
 
     public String getQuestionId() {
         return questionId;
@@ -95,5 +98,29 @@ public class UpdateQuestionRequest {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public String getQuestionContent() {
+        return questionContent;
+    }
+
+    public void setQuestionContent(String questionContent) {
+        this.questionContent = questionContent;
+    }
+
+    public String getSource() {
+        return source;
+    }
+
+    public void setSource(String source) {
+        this.source = source;
+    }
+
+    public Integer getYear() {
+        return year;
+    }
+
+    public void setYear(Integer year) {
+        this.year = year;
     }
 }

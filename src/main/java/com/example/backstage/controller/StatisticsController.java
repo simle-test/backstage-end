@@ -2,7 +2,6 @@ package com.example.backstage.controller;
 
 import com.example.backstage.dto.response.*;
 import com.example.backstage.service.StatisticsService;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -13,10 +12,13 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/statistics")
-@RequiredArgsConstructor
 public class StatisticsController {
 
     private final StatisticsService statisticsService;
+
+    public StatisticsController(StatisticsService statisticsService) {
+        this.statisticsService = statisticsService;
+    }
 
     /**
      * 获取综合统计

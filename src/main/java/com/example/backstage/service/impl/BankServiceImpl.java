@@ -9,8 +9,8 @@ import com.example.backstage.repository.BankRepository;
 import com.example.backstage.repository.QuestionRepository;
 import com.example.backstage.service.BankService;
 import jakarta.persistence.EntityNotFoundException;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.format.DateTimeFormatter;
@@ -21,12 +21,17 @@ import java.util.List;
  * 题库服务实现
  */
 @Service
-@RequiredArgsConstructor
-@Slf4j
 public class BankServiceImpl implements BankService {
+
+    private static final Logger log = LoggerFactory.getLogger(BankServiceImpl.class);
 
     private final BankRepository bankRepository;
     private final QuestionRepository questionRepository;
+
+    public BankServiceImpl(BankRepository bankRepository, QuestionRepository questionRepository) {
+        this.bankRepository = bankRepository;
+        this.questionRepository = questionRepository;
+    }
     private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     @Override
@@ -35,17 +40,33 @@ public class BankServiceImpl implements BankService {
         List<BankResponse> responses = new ArrayList<>();
         
         for (Bank bank : banks) {
+            String categoryId = getCategoryIdByBankName(bank.getName());
+            long count = categoryId != null ? questionRepository.countByCategoryIdContaining(categoryId) : 0;
+            
             responses.add(new BankResponse(
                 bank.getId(),
                 bank.getName(),
                 bank.getDesc(),
                 bank.getColor(),
-                questionRepository.count(),
+                count,
                 bank.getUpdatedAt() != null ? bank.getUpdatedAt().format(FORMATTER) : ""
             ));
         }
         
         return responses;
+    }
+    
+    private String getCategoryIdByBankName(String bankName) {
+        if (bankName == null) return null;
+        
+        if (bankName.contains("政治理论")) return "political_theory";
+        if (bankName.contains("数量关系")) return "quantity_relation";
+        if (bankName.contains("资料分析")) return "material_analysis";
+        if (bankName.contains("常识判断")) return "common_sense_judgment";
+        if (bankName.contains("判断推理")) return "logical_judgment";
+        if (bankName.contains("言语理解")) return "language_understanding";
+        
+        return null;
     }
 
     @Override

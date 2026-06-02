@@ -5,7 +5,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -32,7 +31,28 @@ public interface QuestionRepository extends JpaRepository<Question, Integer> {
     long countByCategoryId(String categoryId);
 
     /**
+     * 根据分类ID模糊查询题目数量
+     */
+    long countByCategoryIdContaining(String categoryId);
+
+    /**
      * 按难度统计题目数量
      */
     long countByDifficulty(String difficulty);
+
+    /**
+     * 根据材料ID查询题目列表
+     */
+    java.util.List<Question> findByMaterialId(Integer materialId);
+
+    /**
+     * 查询有材料ID的题目（材料分析题）
+     */
+    java.util.List<Question> findByMaterialIdIsNotNull();
+
+    /**
+     * 根据难度和标题查询题目（不带分类）
+     */
+    org.springframework.data.domain.Page<Question> findByDifficultyContainingAndTitleContaining(
+        String difficulty, String title, org.springframework.data.domain.Pageable pageable);
 }

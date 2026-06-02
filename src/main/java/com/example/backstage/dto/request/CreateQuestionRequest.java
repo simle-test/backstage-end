@@ -13,6 +13,10 @@ public class CreateQuestionRequest {
     private String difficulty;
     private String category;
     private String analysis;
+    private String questionContent;
+    private String source;
+    private Integer year;
+    private String status;
 
     public String getTitle() {
         return title;
@@ -68,5 +72,37 @@ public class CreateQuestionRequest {
 
     public void setAnalysis(String analysis) {
         this.analysis = analysis;
+    }
+
+    public String getQuestionContent() {
+        return questionContent;
+    }
+
+    public void setQuestionContent(String questionContent) {
+        this.questionContent = questionContent;
+    }
+
+    public String getSource() {
+        return source;
+    }
+
+    public void setSource(String source) {
+        this.source = source;
+    }
+
+    public Integer getYear() {
+        return year;
+    }
+
+    public void setYear(Integer year) {
+        this.year = year;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
     }
 }
