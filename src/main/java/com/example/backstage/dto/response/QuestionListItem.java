@@ -21,6 +21,7 @@ public class QuestionListItem {
     private Integer bankId;
     private String bankName;
     private Integer materialId;
+    private String imageUrl;
     private String createdAt;
 
     public QuestionListItem() {}
@@ -28,7 +29,7 @@ public class QuestionListItem {
     public QuestionListItem(Integer id, String questionId, String title, String content, Object options,
                            String questionContent, String answer, String analysis, String difficulty,
                            String difficultyText, String category, String categoryText, Integer bankId,
-                           String bankName, Integer materialId, String createdAt) {
+                           String bankName, Integer materialId, String imageUrl, String createdAt) {
         this.id = id;
         this.questionId = questionId;
         this.title = title;
@@ -44,6 +45,7 @@ public class QuestionListItem {
         this.bankId = bankId;
         this.bankName = bankName;
         this.materialId = materialId;
+        this.imageUrl = imageUrl;
         this.createdAt = createdAt;
     }
 
@@ -78,6 +80,8 @@ public class QuestionListItem {
     public void setBankName(String bankName) { this.bankName = bankName; }
     public Integer getMaterialId() { return materialId; }
     public void setMaterialId(Integer materialId) { this.materialId = materialId; }
+    public String getImageUrl() { return imageUrl; }
+    public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
     public String getCreatedAt() { return createdAt; }
     public void setCreatedAt(String createdAt) { this.createdAt = createdAt; }
 }

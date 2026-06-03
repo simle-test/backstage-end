@@ -170,7 +170,15 @@ public class QuestionServiceImpl implements QuestionService {
         return convertToDetailResponse(question);
     }
 
+    private static final String IMAGE_BASE_URL = "https://www.civilservant.cloud/";
+
     private QuestionListItem convertToListItem(Question question) {
+        // 构建完整的图片 URL
+        String fullImageUrl = null;
+        if (question.getImageUrl() != null && !question.getImageUrl().isEmpty()) {
+            fullImageUrl = IMAGE_BASE_URL + question.getImageUrl();
+        }
+
         return new QuestionListItem(
             question.getId(),
             question.getQuestionId(),
@@ -187,6 +195,7 @@ public class QuestionServiceImpl implements QuestionService {
             null,
             null,
             question.getMaterialId(),
+            fullImageUrl,
             question.getCreatedAt() != null ? question.getCreatedAt().format(FORMATTER) : ""
         );
     }
@@ -212,6 +221,11 @@ public class QuestionServiceImpl implements QuestionService {
         response.setSource(question.getSource());
         response.setYear(question.getYear());
         response.setCategoryId(question.getCategoryId());
+        
+        // 设置题目图片 URL
+        if (question.getImageUrl() != null && !question.getImageUrl().isEmpty()) {
+            response.setImageUrl(IMAGE_BASE_URL + question.getImageUrl());
+        }
 
         // 如果是资料分析题，查询材料信息
         if (question.getMaterialId() != null && "material_analysis".equals(question.getCategoryId())) {

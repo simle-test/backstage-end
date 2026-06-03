@@ -28,6 +28,7 @@ public class QuestionDetailResponse {
     private String materialTitle;
     private String materialContent;
     private String materialImageUrl;
+    private String imageUrl;
 
     public QuestionDetailResponse() {}
 
@@ -95,4 +96,6 @@ public class QuestionDetailResponse {
     public void setMaterialContent(String materialContent) { this.materialContent = materialContent; }
     public String getMaterialImageUrl() { return materialImageUrl; }
     public void setMaterialImageUrl(String materialImageUrl) { this.materialImageUrl = materialImageUrl; }
+    public String getImageUrl() { return imageUrl; }
+    public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
 }
