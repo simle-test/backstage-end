@@ -83,4 +83,15 @@ public class QuestionController {
         QuestionDetailResponse response = questionService.getQuestionDetail(id);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
+
+    /**
+     * 获取资料分析题目列表
+     */
+    @GetMapping("/material-analysis")
+    public ResponseEntity<ApiResponse<QuestionListResponse>> getMaterialAnalysisQuestions(
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(defaultValue = "10") Integer size) {
+        QuestionListResponse response = questionService.getQuestionList(page, size, null, null, "material_analysis");
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
 }

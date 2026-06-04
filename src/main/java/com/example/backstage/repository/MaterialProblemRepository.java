@@ -11,24 +11,9 @@ import java.util.List;
  */
 @Repository
 public interface MaterialProblemRepository extends JpaRepository<MaterialProblem, Integer> {
-
+    
     /**
-     * 根据材料ID查询所有小题，按序号排序
+     * 根据材料ID查询小题列表，按id排序
      */
-    List<MaterialProblem> findByMaterialIdOrderByOrderNumAsc(Integer materialId);
-
-    /**
-     * 根据材料ID查询小题数量
-     */
-    long countByMaterialId(Integer materialId);
-
-    /**
-     * 根据材料ID删除所有小题
-     */
-    void deleteByMaterialId(Integer materialId);
-
-    /**
-     * 根据问题ID查询小题
-     */
-    MaterialProblem findByQuestionId(String questionId);
+    List<MaterialProblem> findByMaterialIdOrderByIdAsc(Integer materialId);
 }

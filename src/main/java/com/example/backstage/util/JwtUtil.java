@@ -1,6 +1,7 @@
 
 package com.example.backstage.util;
 
+import com.example.backstage.entity.EndUser;
 import com.example.backstage.entity.User;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
@@ -31,7 +32,7 @@ public class JwtUtil {
     }
 
     /**
-     * 生成JWT令牌
+     * 生成JWT令牌（从User实体）
      */
     public String generateToken(User user) {
         Map<String, Object> claims = new HashMap<>();
@@ -42,6 +43,24 @@ public class JwtUtil {
         return Jwts.builder()
                 .claims(claims)
                 .subject(user.getUsername())
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + expiration))
+                .signWith(getSigningKey())
+                .compact();
+    }
+
+    /**
+     * 生成JWT令牌（从EndUser实体）
+     */
+    public String generateTokenFromEndUser(EndUser endUser) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("id", endUser.getId());
+        claims.put("username", endUser.getUsername());
+        claims.put("role", endUser.getRole() != null ? endUser.getRole() : "ROLE_USER");
+
+        return Jwts.builder()
+                .claims(claims)
+                .subject(endUser.getUsername())
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + expiration))
                 .signWith(getSigningKey())

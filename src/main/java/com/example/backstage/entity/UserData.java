@@ -10,11 +10,11 @@ import jakarta.persistence.*;
 public class UserData {
 
     @Id
-    @Column(name = "user_id")
-    private Integer userId;
+    @Column(name = "data_id")
+    private Integer dataId;
 
-    @Column(name = "finish")
-    private Integer finish;
+    @Column(name = "finished")
+    private Integer finished;
 
     @Column(name = "score")
     private Integer score;
@@ -47,10 +47,10 @@ public class UserData {
     private Double accuracy;
 
     // Getters and Setters
-    public Integer getUserId() { return userId; }
-    public void setUserId(Integer userId) { this.userId = userId; }
-    public Integer getFinish() { return finish; }
-    public void setFinish(Integer finish) { this.finish = finish; }
+    public Integer getDataId() { return dataId; }
+    public void setDataId(Integer dataId) { this.dataId = dataId; }
+    public Integer getFinished() { return finished; }
+    public void setFinished(Integer finished) { this.finished = finished; }
     public Integer getScore() { return score; }
     public void setScore(Integer score) { this.score = score; }
     public Integer getTotalTime() { return totalTime; }

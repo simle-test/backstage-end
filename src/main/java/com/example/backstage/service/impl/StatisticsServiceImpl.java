@@ -152,6 +152,7 @@ public class StatisticsServiceImpl implements StatisticsService {
             String color = "#" + hex.substring(0, 6);
             
             rankings.add(new RankingResponse(
+                userId,
                 rank++,
                 username != null ? username : "未知用户",
                 avatar,
@@ -169,6 +170,7 @@ public class StatisticsServiceImpl implements StatisticsService {
                     hex = "0" + hex;
                 }
                 rankings.add(new RankingResponse(
+                    i + 100 + i,
                     i + 1,
                     names[i],
                     String.valueOf(names[i].charAt(0)),

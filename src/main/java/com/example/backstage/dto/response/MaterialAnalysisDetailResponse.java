@@ -14,6 +14,7 @@ public class MaterialAnalysisDetailResponse {
     private Integer year;
     private String categoryId;
     private String categoryName;
+    private String imageUrl;
     private List<MaterialProblemItem> problems;
     private Integer problemCount;
 
@@ -34,6 +35,8 @@ public class MaterialAnalysisDetailResponse {
     public void setCategoryId(String categoryId) { this.categoryId = categoryId; }
     public String getCategoryName() { return categoryName; }
     public void setCategoryName(String categoryName) { this.categoryName = categoryName; }
+    public String getImageUrl() { return imageUrl; }
+    public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
     public List<MaterialProblemItem> getProblems() { return problems; }
     public void setProblems(List<MaterialProblemItem> problems) { 
         this.problems = problems; 

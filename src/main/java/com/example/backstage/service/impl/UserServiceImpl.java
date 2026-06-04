@@ -2,12 +2,16 @@ package com.example.backstage.service.impl;
 
 import com.example.backstage.dto.request.LoginRequest;
 import com.example.backstage.dto.response.*;
+import com.example.backstage.entity.EndUser;
 import com.example.backstage.entity.User;
+import com.example.backstage.repository.EndUserRepository;
 import com.example.backstage.repository.UserRepository;
 import com.example.backstage.service.UserService;
 import com.example.backstage.util.JwtUtil;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,30 +26,47 @@ import java.util.stream.Collectors;
 public class UserServiceImpl implements UserService {
 
     private final UserRepository userRepository;
+    private final EndUserRepository endUserRepository;
     private final JwtUtil jwtUtil;
+    private final PasswordEncoder passwordEncoder;
     
-    public UserServiceImpl(UserRepository userRepository, JwtUtil jwtUtil) {
+    public UserServiceImpl(UserRepository userRepository, EndUserRepository endUserRepository, JwtUtil jwtUtil) {
         this.userRepository = userRepository;
+        this.endUserRepository = endUserRepository;
         this.jwtUtil = jwtUtil;
+        this.passwordEncoder = new BCryptPasswordEncoder();
     }
 
     @Override
     public LoginResponse login(LoginRequest request) {
-        User user = userRepository.findByUsername(request.getUsername())
+        // 从 end_users 表读取用户进行登录验证
+        EndUser endUser = endUserRepository.findByUsername(request.getUsername())
                 .orElseThrow(() -> new RuntimeException("用户名或密码错误"));
         
-        if (!request.getPassword().equals(user.getPassword())) {
+        // 支持BCrypt加密密码和明文密码两种验证方式
+        String storedPassword = endUser.getPassword();
+        boolean passwordMatch = false;
+        
+        if (storedPassword != null && storedPassword.startsWith("$2a$")) {
+            // BCrypt加密密码
+            passwordMatch = passwordEncoder.matches(request.getPassword(), storedPassword);
+        } else {
+            // 明文密码
+            passwordMatch = request.getPassword().equals(storedPassword);
+        }
+        
+        if (!passwordMatch) {
             throw new RuntimeException("用户名或密码错误");
         }
 
-        String token = jwtUtil.generateToken(user);
+        String token = jwtUtil.generateTokenFromEndUser(endUser);
 
         LoginResponse.UserInfo userInfo = new LoginResponse.UserInfo(
-                user.getUserId().longValue(),
-                user.getUsername(),
-                "",
-                "",
-                "ROLE_USER"
+                endUser.getId().longValue(),
+                endUser.getUsername(),
+                endUser.getEmail() != null ? endUser.getEmail() : "",
+                endUser.getPhone() != null ? endUser.getPhone() : "",
+                endUser.getRole() != null ? endUser.getRole() : "ROLE_USER"
         );
 
         return new LoginResponse(token, jwtUtil.getExpiration(), userInfo);
@@ -53,8 +74,26 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public User findByUsername(String username) {
+        // 优先从 end_users 表查找用户
+        EndUser endUser = endUserRepository.findByUsername(username).orElse(null);
+        if (endUser != null) {
+            // 将 EndUser 转换为 User
+            return convertEndUserToUser(endUser);
+        }
+        // 如果 end_users 表找不到，再从 users 表查找
         return userRepository.findByUsername(username)
                 .orElseThrow(() -> new UsernameNotFoundException("用户不存在: " + username));
+    }
+    
+    /**
+     * 将 EndUser 转换为 User
+     */
+    private User convertEndUserToUser(EndUser endUser) {
+        User user = new User();
+        user.setUserId(endUser.getId());
+        user.setUsername(endUser.getUsername());
+        user.setPassword(endUser.getPassword());
+        return user;
     }
 
     @Override

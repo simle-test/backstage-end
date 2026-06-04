@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.*;
  * 资料分析题控制器
  */
 @RestController
-@RequestMapping("/api/material-analysis")
+@RequestMapping("/material-analysis")
 public class MaterialAnalysisController {
 
     private final MaterialAnalysisService materialAnalysisService;

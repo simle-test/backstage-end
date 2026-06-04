@@ -55,4 +55,10 @@ public interface QuestionRepository extends JpaRepository<Question, Integer> {
      */
     org.springframework.data.domain.Page<Question> findByDifficultyContainingAndTitleContaining(
         String difficulty, String title, org.springframework.data.domain.Pageable pageable);
+
+    /**
+     * 查询材料分析题（has_material=true 或者 image_url不为空）
+     */
+    @Query("SELECT q FROM Question q WHERE q.hasMaterial = true OR (q.imageUrl IS NOT NULL AND q.imageUrl != '')")
+    java.util.List<Question> findMaterialAnalysisQuestions();
 }

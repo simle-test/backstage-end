@@ -18,11 +18,11 @@ public interface UserDataRepository extends JpaRepository<UserData, Integer> {
      * 通过data_id查询用户完成数
      */
     @Query(value = "SELECT finished FROM user_data WHERE data_id = ?1", nativeQuery = true)
-    Optional<Integer> findFinishedById(Integer dataid);
+    Optional<Integer> findFinishedById(Integer dataId);
 
     /**
      * 查询刷题排行榜（按finished字段降序）
      */
-    @Query(value = "SELECT id, finished FROM user_data ORDER BY finished DESC", nativeQuery = true)
+    @Query(value = "SELECT data_id, finished FROM user_data ORDER BY finished DESC", nativeQuery = true)
     List<Object[]> findRankingByFinish();
 }

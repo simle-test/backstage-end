@@ -93,8 +93,9 @@ public class SecurityConfig {
                 .requestMatchers("/material-analysis/**").permitAll()
                 .requestMatchers("/statistics/**").permitAll()
                 .requestMatchers("/users/**").permitAll()
+                .requestMatchers("/end-users/**").permitAll()
                 .requestMatchers("/error").permitAll()
-                .anyRequest().authenticated())
+                .anyRequest().permitAll())
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

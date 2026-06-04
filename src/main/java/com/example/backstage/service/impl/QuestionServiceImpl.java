@@ -72,10 +72,10 @@ public class QuestionServiceImpl implements QuestionService {
         if (difficulty == null) difficulty = "";
         if (category == null) category = "";
 
-        // 如果查询的是材料分析题，返回有material_id的题目或者返回所有题目
+        // 如果查询的是材料分析题，返回有材料的题目（has_material=true或image_url不为空）
         if ("material_analysis".equals(category)) {
-            // 先尝试查询有material_id的题目
-            List<Question> materialQuestions = questionRepository.findByMaterialIdIsNotNull();
+            // 查询有材料的题目：has_material=true 或者 image_url不为空
+            List<Question> materialQuestions = questionRepository.findMaterialAnalysisQuestions();
             if (!materialQuestions.isEmpty()) {
                 // 如果有材料分析题，只返回这些题目
                 List<QuestionListItem> list = materialQuestions.stream()
