@@ -67,28 +67,35 @@ public class QuestionServiceImpl implements QuestionService {
     public QuestionListResponse getQuestionList(Integer page, Integer size, String keyword, String difficulty, String category) {
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.ASC, "id"));
 
+        // 使用final变量
+        final String finalKeyword = (keyword == null) ? "" : keyword;
+        final String finalDifficulty = (difficulty == null) ? "" : difficulty;
+        final String finalCategory = (category == null) ? "" : category;
+
         Page<Question> questionPage;
-        if (keyword == null) keyword = "";
-        if (difficulty == null) difficulty = "";
-        if (category == null) category = "";
 
         // 如果查询的是材料分析题，返回有材料的题目（has_material=true或image_url不为空）
-        if ("material_analysis".equals(category)) {
+        if ("material_analysis".equals(finalCategory)) {
             // 查询有材料的题目：has_material=true 或者 image_url不为空
             List<Question> materialQuestions = questionRepository.findMaterialAnalysisQuestions();
             if (!materialQuestions.isEmpty()) {
-                // 如果有材料分析题，只返回这些题目
-                List<QuestionListItem> list = materialQuestions.stream()
+                // 如果有材料分析题，应用难度筛选
+                List<Question> filteredQuestions = materialQuestions.stream()
+                    .filter(q -> finalDifficulty.isEmpty() || finalDifficulty.equals(q.getDifficulty()))
+                    .filter(q -> finalKeyword.isEmpty() || 
+                        (q.getTitle() != null && q.getTitle().contains(finalKeyword)))
+                    .collect(Collectors.toList());
+                List<QuestionListItem> list = filteredQuestions.stream()
                     .map(this::convertToListItem)
                     .collect(Collectors.toList());
                 return new QuestionListResponse(list, (long) list.size(), page, size);
             } else {
                 // 如果没有材料分析题，返回所有题目作为临时方案
-                questionPage = questionRepository.findByDifficultyContainingAndTitleContaining(difficulty, keyword, pageable);
+                questionPage = questionRepository.findByDifficultyContainingAndTitleContaining(finalDifficulty, finalKeyword, pageable);
             }
         } else {
             questionPage = questionRepository.findByCategoryIdContainingAndDifficultyContainingAndTitleContaining(
-                category, difficulty, keyword, pageable);
+                finalCategory, finalDifficulty, finalKeyword, pageable);
         }
 
         List<QuestionListItem> list = questionPage.getContent().stream()

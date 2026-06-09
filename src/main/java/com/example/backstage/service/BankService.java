@@ -31,4 +31,9 @@ public interface BankService {
      * 更新题库
      */
     void updateBank(Integer id, UpdateBankRequest request);
+
+    /**
+     * 删除题库
+     */
+    void deleteBank(Integer id);
 }

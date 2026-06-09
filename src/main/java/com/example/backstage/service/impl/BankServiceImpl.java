@@ -104,4 +104,21 @@ public class BankServiceImpl implements BankService {
         
         bankRepository.save(bank);
     }
+
+    @Override
+    public void deleteBank(Integer id) {
+        Bank bank = bankRepository.findById(id)
+            .orElseThrow(() -> new EntityNotFoundException("题库不存在"));
+        
+        // 检查是否有相关题目
+        String categoryId = getCategoryIdByBankName(bank.getName());
+        if (categoryId != null) {
+            long count = questionRepository.countByCategoryIdContaining(categoryId);
+            if (count > 0) {
+                throw new IllegalArgumentException("该模块下存在 " + count + " 道题目，请先删除所有题目再删除模块");
+            }
+        }
+        
+        bankRepository.delete(bank);
+    }
 }

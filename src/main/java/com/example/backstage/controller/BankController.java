@@ -61,4 +61,13 @@ public class BankController {
         bankService.updateBank(id, request);
         return ResponseEntity.ok(ApiResponse.success("更新成功"));
     }
+
+    /**
+     * 删除题库
+     */
+    @DeleteMapping("/{id}")
+    public ResponseEntity<ApiResponse<String>> deleteBank(@PathVariable Integer id) {
+        bankService.deleteBank(id);
+        return ResponseEntity.ok(ApiResponse.success("删除成功"));
+    }
 }
