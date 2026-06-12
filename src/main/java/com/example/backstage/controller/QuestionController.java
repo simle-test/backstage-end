@@ -94,4 +94,25 @@ public class QuestionController {
         QuestionListResponse response = questionService.getQuestionList(page, size, null, null, "material_analysis");
         return ResponseEntity.ok(ApiResponse.success(response));
     }
+
+    /**
+     * 获取近期新增题目列表
+     */
+    @GetMapping("/recent")
+    public ResponseEntity<ApiResponse<QuestionListResponse>> getRecentQuestions(
+            @RequestParam(defaultValue = "7") Integer days,
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(defaultValue = "20") Integer size,
+            @RequestParam(required = false) String category) {
+        QuestionListResponse response = questionService.getRecentQuestions(days, page, size, category);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * 获取各分类近期新增统计
+     */
+    @GetMapping("/recent-stats")
+    public ResponseEntity<ApiResponse<?>> getRecentStats(@RequestParam(defaultValue = "7") Integer days) {
+        return ResponseEntity.ok(ApiResponse.success(questionService.getRecentStats(days)));
+    }
 }

@@ -1,22 +1,31 @@
+
 package com.example.backstage.service.impl;
 
 import com.example.backstage.dto.request.LoginRequest;
+import com.example.backstage.dto.request.RegisterRequest;
 import com.example.backstage.dto.response.*;
-import com.example.backstage.entity.EndUser;
 import com.example.backstage.entity.User;
-import com.example.backstage.repository.EndUserRepository;
+import com.example.backstage.entity.UsersEntity;
 import com.example.backstage.repository.UserRepository;
+import com.example.backstage.repository.UsersRepository;
 import com.example.backstage.service.UserService;
 import com.example.backstage.util.JwtUtil;
+import org.springframework.context.ApplicationContext;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.text.SimpleDateFormat;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -26,118 +35,157 @@ import java.util.stream.Collectors;
 public class UserServiceImpl implements UserService {
 
     private final UserRepository userRepository;
-    private final EndUserRepository endUserRepository;
-    private final JwtUtil jwtUtil;
+    private final UsersRepository usersRepository;
     private final PasswordEncoder passwordEncoder;
-    
-    public UserServiceImpl(UserRepository userRepository, EndUserRepository endUserRepository, JwtUtil jwtUtil) {
+    private final JwtUtil jwtUtil;
+    private final ApplicationContext applicationContext;
+
+    public UserServiceImpl(UserRepository userRepository, UsersRepository usersRepository, PasswordEncoder passwordEncoder, 
+                          JwtUtil jwtUtil, ApplicationContext applicationContext) {
         this.userRepository = userRepository;
-        this.endUserRepository = endUserRepository;
+        this.usersRepository = usersRepository;
+        this.passwordEncoder = passwordEncoder;
         this.jwtUtil = jwtUtil;
-        this.passwordEncoder = new BCryptPasswordEncoder();
+        this.applicationContext = applicationContext;
+    }
+    
+    private AuthenticationManager authenticationManager;
+    
+    private AuthenticationManager getAuthenticationManager() {
+        if (authenticationManager == null) {
+            authenticationManager = applicationContext.getBean(AuthenticationManager.class);
+        }
+        return authenticationManager;
+    }
+
+    private static final Map<String, String> ROLE_MAP = new HashMap<>();
+    static {
+        ROLE_MAP.put("ROLE_USER", "普通用户");
+        ROLE_MAP.put("ROLE_ADMIN", "管理员");
+        ROLE_MAP.put("ROLE_VIP", "VIP用户");
+    }
+
+    private static final Map<String, String> STATUS_MAP = new HashMap<>();
+    static {
+        STATUS_MAP.put("active", "正常");
+        STATUS_MAP.put("inactive", "未激活");
+        STATUS_MAP.put("banned", "禁用");
     }
 
     @Override
     public LoginResponse login(LoginRequest request) {
-        // 从 end_users 表读取用户进行登录验证
-        EndUser endUser = endUserRepository.findByUsername(request.getUsername())
-                .orElseThrow(() -> new RuntimeException("用户名或密码错误"));
-        
-        // 支持BCrypt加密密码和明文密码两种验证方式
-        String storedPassword = endUser.getPassword();
-        boolean passwordMatch = false;
-        
-        if (storedPassword != null && storedPassword.startsWith("$2a$")) {
-            // BCrypt加密密码
-            passwordMatch = passwordEncoder.matches(request.getPassword(), storedPassword);
-        } else {
-            // 明文密码
-            passwordMatch = request.getPassword().equals(storedPassword);
-        }
-        
-        if (!passwordMatch) {
-            throw new RuntimeException("用户名或密码错误");
-        }
+        Authentication authentication = getAuthenticationManager().authenticate(
+                new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
+        );
 
-        String token = jwtUtil.generateTokenFromEndUser(endUser);
+        User user = (User) authentication.getPrincipal();
+        String token = jwtUtil.generateToken(user);
 
         LoginResponse.UserInfo userInfo = new LoginResponse.UserInfo(
-                endUser.getId().longValue(),
-                endUser.getUsername(),
-                endUser.getEmail() != null ? endUser.getEmail() : "",
-                endUser.getPhone() != null ? endUser.getPhone() : "",
-                endUser.getRole() != null ? endUser.getRole() : "ROLE_USER"
+                user.getId(),
+                user.getUsername(),
+                user.getEmail(),
+                user.getPhone(),
+                user.getRole()
         );
 
         return new LoginResponse(token, jwtUtil.getExpiration(), userInfo);
     }
 
     @Override
-    public User findByUsername(String username) {
-        // 优先从 end_users 表查找用户
-        EndUser endUser = endUserRepository.findByUsername(username).orElse(null);
-        if (endUser != null) {
-            // 将 EndUser 转换为 User
-            return convertEndUserToUser(endUser);
+    @Transactional
+    public User register(RegisterRequest request) {
+        if (userRepository.existsByUsername(request.getUsername())) {
+            throw new RuntimeException("用户名已存在");
         }
-        // 如果 end_users 表找不到，再从 users 表查找
+
+        if (userRepository.existsByEmail(request.getEmail())) {
+            throw new RuntimeException("邮箱已存在");
+        }
+
+        User user = new User();
+        user.setUsername(request.getUsername());
+        user.setPassword(passwordEncoder.encode(request.getPassword()));
+        user.setEmail(request.getEmail());
+        user.setPhone(request.getPhone());
+        user.setRole("ROLE_USER");
+        user.setEnabled(true);
+        user.setStatus("active");
+
+        return userRepository.save(user);
+    }
+
+    @Override
+    public User findByUsername(String username) {
         return userRepository.findByUsername(username)
                 .orElseThrow(() -> new UsernameNotFoundException("用户不存在: " + username));
-    }
-    
-    /**
-     * 将 EndUser 转换为 User
-     */
-    private User convertEndUserToUser(EndUser endUser) {
-        User user = new User();
-        user.setUserId(endUser.getId());
-        user.setUsername(endUser.getUsername());
-        user.setPassword(endUser.getPassword());
-        return user;
     }
 
     @Override
     public User findById(Long id) {
-        return userRepository.findById(id.intValue())
+        return userRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("用户不存在: " + id));
     }
 
     @Override
     public UserListResponse getUserList(Integer page, Integer size, String keyword, String role) {
-        List<User> allUsers = userRepository.findAll();
+        // 从users表查询用户
+        List<Object[]> userDataList = usersRepository.findAllUsersNative();
         
-        List<UserListItem> filteredList = allUsers.stream()
-            .filter(user -> {
-                if (keyword != null && !keyword.isEmpty()) {
-                    String kw = keyword.toLowerCase();
-                    return user.getUsername().toLowerCase().contains(kw);
-                }
-                return true;
+        // 过滤关键字
+        final String finalKeyword = (keyword == null) ? "" : keyword.toLowerCase();
+        List<Object[]> filteredList = userDataList.stream()
+            .filter(row -> {
+                String username = row.length > 1 && row[1] != null ? row[1].toString().toLowerCase() : "";
+                return username.contains(finalKeyword);
             })
-            .map(this::convertToListItem)
             .collect(Collectors.toList());
         
-        int total = filteredList.size();
+        // 分页处理
+        int totalElements = filteredList.size();
         int start = (page - 1) * size;
-        int end = Math.min(start + size, total);
+        int end = Math.min(start + size, totalElements);
+        List<Object[]> pageList = start < totalElements ? filteredList.subList(start, end) : new ArrayList<>();
         
-        List<UserListItem> pagedList;
-        if (start >= total) {
-            pagedList = new ArrayList<>();
-        } else {
-            pagedList = new ArrayList<>(filteredList.subList(start, end));
-        }
+        // 转换为UserListItem
+        List<UserListItem> list = pageList.stream()
+            .map(this::convertToListItemFromUsers)
+            .collect(Collectors.toList());
         
-        return new UserListResponse(pagedList, (long) total, page, size);
+        return new UserListResponse(list, (long) totalElements, page, size);
     }
 
     @Override
     public UserStatisticsResponse getUserStatistics() {
-        long total = userRepository.count();
-        long active = total;
+        long total = usersRepository.countUsersNative();
+        long active = total; // 默认全部活跃
         long todayNew = 0;
         
         return new UserStatisticsResponse(total, active, todayNew, 85.0);
+    }
+    
+    /**
+     * 从users表数据转换为UserListItem
+     */
+    private UserListItem convertToListItemFromUsers(Object[] row) {
+        Integer id = row.length > 0 && row[0] != null ? ((Number) row[0]).intValue() : 0;
+        String username = row.length > 1 && row[1] != null ? row[1].toString() : "";
+        String nickname = row.length > 2 && row[2] != null ? row[2].toString() : "";
+        
+        String displayName = nickname != null && !nickname.isEmpty() ? nickname : username;
+        
+        return new UserListItem(
+            id.longValue(),
+            displayName,
+            null, // email
+            "user",
+            "普通用户",
+            null, // practiceCount
+            null, // passRate
+            "active",
+            "活跃",
+            null // joinDate
+        );
     }
 
     @Override
@@ -146,6 +194,20 @@ public class UserServiceImpl implements UserService {
         if (userRepository.existsByUsername(user.getUsername())) {
             throw new RuntimeException("用户名已存在");
         }
+
+        if (userRepository.existsByEmail(user.getEmail())) {
+            throw new RuntimeException("邮箱已存在");
+        }
+
+        user.setPassword(passwordEncoder.encode(user.getPassword()));
+        if (user.getRole() == null) {
+            user.setRole("ROLE_USER");
+        }
+        if (user.getStatus() == null) {
+            user.setStatus("active");
+        }
+        user.setEnabled(true);
+
         return userRepository.save(user);
     }
 
@@ -158,16 +220,27 @@ public class UserServiceImpl implements UserService {
             existingUser.setUsername(user.getUsername());
         }
         
-        if (user.getWechatOpenid() != null) {
-            existingUser.setWechatOpenid(user.getWechatOpenid());
+        if (user.getEmail() != null && !user.getEmail().equals(existingUser.getEmail())) {
+            if (userRepository.existsByEmail(user.getEmail())) {
+                throw new RuntimeException("邮箱已被使用");
+            }
+            existingUser.setEmail(user.getEmail());
         }
         
-        if (user.getPassword() != null) {
-            existingUser.setPassword(user.getPassword());
+        if (user.getPhone() != null) {
+            existingUser.setPhone(user.getPhone());
         }
         
-        if (user.getAvatarUrl() != null) {
-            existingUser.setAvatarUrl(user.getAvatarUrl());
+        if (user.getRole() != null) {
+            existingUser.setRole(user.getRole());
+        }
+        
+        if (user.getStatus() != null) {
+            existingUser.setStatus(user.getStatus());
+        }
+        
+        if (user.getAvatar() != null) {
+            existingUser.setAvatar(user.getAvatar());
         }
         
         return userRepository.save(existingUser);
@@ -176,10 +249,10 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional
     public void deleteUser(Long id) {
-        if (!userRepository.existsById(id.intValue())) {
+        if (!userRepository.existsById(id)) {
             throw new RuntimeException("用户不存在: " + id);
         }
-        userRepository.deleteById(id.intValue());
+        userRepository.deleteById(id);
     }
 
     @Override
@@ -188,47 +261,20 @@ public class UserServiceImpl implements UserService {
     }
 
     private UserListItem convertToListItem(User user) {
-        String avatarStr = "U";
-        if (user.getUsername() != null && !user.getUsername().isEmpty()) {
-            avatarStr = String.valueOf(user.getUsername().charAt(0)).toUpperCase();
-        }
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+        String joinDate = user.getJoinDate() != null ? sdf.format(user.getJoinDate()) : "";
         
-        String colorStr = "#3498db";
-        if (user.getUserId() != null) {
-            String hex = Integer.toHexString((user.getUserId() * 0x33) % 0xFFFFFF);
-            while (hex.length() < 6) {
-                hex = "0" + hex;
-            }
-            colorStr = "#" + hex.substring(0, 6);
-        }
-        
-        UserListItem item = new UserListItem();
-        item.setId(user.getUserId().longValue());
-        item.setUsername(user.getUsername() != null ? user.getUsername() : "");
-        item.setEmail("");
-        item.setRole("ROLE_USER");
-        item.setRoleText("普通用户");
-        item.setPracticeCount(0L);
-        item.setPassRate(0.0);
-        item.setJoinDate("");
-        item.setStatus("active");
-        item.setStatusText("正常");
-        item.setAvatar(avatarStr);
-        item.setColor(colorStr);
-        
-        return item;
-    }
-
-    @Override
-    public User register(com.example.backstage.dto.request.RegisterRequest request) {
-        if (userRepository.existsByUsername(request.getUsername())) {
-            throw new RuntimeException("用户名已存在");
-        }
-
-        User user = new User();
-        user.setUsername(request.getUsername());
-        user.setPassword(request.getPassword());
-
-        return userRepository.save(user);
+        return new UserListItem(
+            user.getId(),
+            user.getUsername(),
+            user.getEmail(),
+            user.getRole(),
+            ROLE_MAP.getOrDefault(user.getRole(), user.getRole()),
+            user.getPracticeCount() != null ? user.getPracticeCount().longValue() : 0L,
+            user.getPassRate() != null ? user.getPassRate() : 0.0,
+            user.getStatus(),
+            STATUS_MAP.getOrDefault(user.getStatus(), user.getStatus()),
+            joinDate
+        );
     }
 }

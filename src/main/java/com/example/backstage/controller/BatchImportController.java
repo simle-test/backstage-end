@@ -1,9 +1,11 @@
 package com.example.backstage.controller;
 
+import com.example.backstage.dto.ImportRequestDTO;
 import com.example.backstage.dto.MaterialQuestionDTO;
 import com.example.backstage.dto.ParsedQuestionDTO;
 import com.example.backstage.dto.response.ApiResponse;
 import com.example.backstage.service.AiParseService;
+import com.example.backstage.service.TestImportService;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.slf4j.Logger;
@@ -30,9 +32,11 @@ public class BatchImportController {
     private static final Logger logger = LoggerFactory.getLogger(BatchImportController.class);
     
     private final AiParseService aiParseService;
+    private final TestImportService testImportService;
 
-    public BatchImportController(AiParseService aiParseService) {
+    public BatchImportController(AiParseService aiParseService, TestImportService testImportService) {
         this.aiParseService = aiParseService;
+        this.testImportService = testImportService;
     }
 
     // 题目分类映射
@@ -77,12 +81,13 @@ public class BatchImportController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> previewImportWithAI(
             @RequestParam("questionFile") MultipartFile questionFile,
             @RequestParam(value = "answerFile", required = false) MultipartFile answerFile,
-            @RequestParam(value = "category", required = false) String category) {
+            @RequestParam(value = "category", required = false) String category,
+            @RequestParam(value = "source", required = false) String source) {
         
-        logger.info("收到AI批量导入预览请求: questionFile={}, answerFile={}, category={}",
+        logger.info("收到AI批量导入预览请求: questionFile={}, answerFile={}, category={}, source={}",
                     questionFile.getOriginalFilename(),
                     answerFile != null ? answerFile.getOriginalFilename() : "无",
-                    category);
+                    category, source);
         
         try {
             // 1. 读取文档内容
@@ -155,6 +160,7 @@ public class BatchImportController {
             result.put("statistics", stats);
             result.put("message", "成功识别 " + parsedQuestions.size() + " 道题目（AI解析）");
             result.put("parseMethod", "ai");
+            result.put("source", source); // 添加来源名称
             
             logger.info("AI解析成功: total={}", parsedQuestions.size());
             
@@ -173,12 +179,13 @@ public class BatchImportController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> previewImport(
             @RequestParam("questionFile") MultipartFile questionFile,
             @RequestParam(value = "answerFile", required = false) MultipartFile answerFile,
-            @RequestParam(value = "category", required = false) String category) {
+            @RequestParam(value = "category", required = false) String category,
+            @RequestParam(value = "source", required = false) String source) {
         
-        logger.info("收到批量导入预览请求: questionFile={}, answerFile={}, category={}",
+        logger.info("收到批量导入预览请求: questionFile={}, answerFile={}, category={}, source={}",
                     questionFile.getOriginalFilename(),
                     answerFile != null ? answerFile.getOriginalFilename() : "无",
-                    category);
+                    category, source);
         
         try {
             // 1. 解析题目文件
@@ -264,6 +271,7 @@ public class BatchImportController {
             result.put("materialQuestions", materialQuestions);
             result.put("statistics", stats);
             result.put("message", "成功识别 " + allQuestions.size() + " 道题目（包含 " + materialQuestions.size() + " 道资料分析大题）");
+            result.put("source", source); // 添加来源名称
             
             logger.info("成功解析题目: total={}, 普通题目={}, 材料大题={}", 
                         allQuestions.size(), normalQuestions.size(), materialQuestions.size());
@@ -388,26 +396,35 @@ public class BatchImportController {
             String line = lines.get(i).trim();
             if (line.isEmpty()) continue;
             
-            // 检查是否是分类标题
-            if (line.matches("^第[一二三四五六七八九十]+(部分|编|章)\\s*.+")) {
-                Matcher catMatcher = Pattern.compile("^第[一二三四五六七八九十]+(部分|编|章)\\s*(.+)").matcher(line);
-                if (catMatcher.find()) {
-                    currentCategory = catMatcher.group(2).trim();
-                    logger.debug("识别到分类: {}", currentCategory);
-                    if (currentCategory.contains("资料分析")) {
-                        inMaterialAnalysis = true;
-                    } else {
-                        inMaterialAnalysis = false;
+            // 检查是否是分类标题（支持多种格式）
+            String categoryMatch = extractCategory(line);
+            if (categoryMatch != null) {
+                // 保存之前可能未完成的题目
+                if (currentQuestion != null && currentOptions.size() > 0) {
+                    currentQuestion.setOptions(new ArrayList<>(currentOptions));
+                    if (inMaterialBlock) {
+                        currentSubQuestions.add(currentQuestion);
+                    } else if (!inMaterialAnalysis) {
+                        normalQuestions.add(currentQuestion);
                     }
+                    currentQuestion = null;
+                    currentOptions.clear();
                 }
+                
+                currentCategory = categoryMatch;
+                logger.info("识别到分类: {}", currentCategory);
+                
+                // 判断是否是资料分析
+                inMaterialAnalysis = currentCategory.contains("资料分析");
+                
                 // 如果之前有未完成的材料大题，先保存
                 if (inMaterialBlock && currentMaterial.length() > 0) {
                     saveMaterialQuestion(materialQuestions, currentMaterial, currentSubQuestions, currentQuestion, currentOptions, currentCategory, materialOrderNum++);
                     currentMaterial = new StringBuilder();
                     currentSubQuestions = new ArrayList<>();
-                    currentQuestion = null;
-                    currentOptions.clear();
+                    inMaterialBlock = false;
                 }
+                
                 continue;
             }
             
@@ -717,150 +734,188 @@ public class BatchImportController {
 
     /**
      * 解析答案文件（包含答案和解析）
+     * 格式说明：
+     * - 题号. 答案（如 "21. A"）
+     * - 解析从【解析】开始，到"故正确答案为"结束
      */
     private Map<String, AnswerAnalysis> parseAnswerFile(MultipartFile file) throws IOException {
         Map<String, AnswerAnalysis> answerMap = new LinkedHashMap<>();
         List<String> lines = parseDocument(file);
         
-        logger.info("开始解析答案文件: {}, 共 {} 行", file.getOriginalFilename(), lines.size());
+        logger.info("========== 开始解析答案文件 ==========");
+        logger.info("文件名: {}, 共 {} 行", file.getOriginalFilename(), lines.size());
         
-        // 打印前20行内容
-        int count = 0;
+        // 打印所有行内容，方便调试
+        int lineNum = 0;
         for (String line : lines) {
-            if (count++ < 20) {
-                logger.info("答案文件第 {} 行: '{}'", count, line);
-            } else {
-                break;
-            }
+            lineNum++;
+            logger.info("答案文件第 {} 行: '{}'", lineNum, line);
         }
         
         String currentNum = null;
         StringBuilder currentAnalysis = new StringBuilder();
+        boolean inAnalysis = false; // 是否正在解析【解析】部分
         
         for (String line : lines) {
             line = line.trim();
             if (line.isEmpty()) continue;
             
-            // 匹配答案格式（新题开始）
-            // 格式1: 1. A
-            // 格式2: 答案1：A
-            // 格式3: 答案1：A 解析内容...
-            // 格式4: 1A
-            // 格式5: 第1题：A
-            // 格式6: 1、A
-            if (line.matches("^\\d+[.、,，:：]\\s*[A-Ea-e]+.*")) {
-                // 先保存上一题的解析
-                if (currentNum != null && currentAnalysis.length() > 0) {
-                    AnswerAnalysis aa = answerMap.get(currentNum);
-                    if (aa != null) {
-                        aa.setAnalysis(currentAnalysis.toString().trim());
+            // 检测【解析】标记，开始收集解析内容
+            if (line.contains("【解析】")) {
+                inAnalysis = true;
+                // 提取【解析】后面的内容
+                String analysisStart = line.substring(line.indexOf("【解析】") + 4).trim();
+                if (!analysisStart.isEmpty()) {
+                    currentAnalysis.append(analysisStart).append(" ");
+                }
+                logger.debug("进入解析模式，当前题目: {}, 解析开始内容: {}", currentNum, analysisStart);
+                continue;
+            }
+            
+            // 如果正在收集解析内容
+            if (inAnalysis) {
+                // 检查是否遇到"故正确答案为"，这是解析结束的标记
+                if (line.contains("故正确答案为")) {
+                    // 保存当前解析内容（不包含"故正确答案为"部分）
+                    int endIndex = line.indexOf("故正确答案为");
+                    if (endIndex > 0) {
+                        String beforeAnswer = line.substring(0, endIndex).trim();
+                        if (!beforeAnswer.isEmpty()) {
+                            currentAnalysis.append(beforeAnswer).append(" ");
+                        }
                     }
-                    currentAnalysis = new StringBuilder();
+                    
+                    // 保存解析到当前题目
+                    if (currentNum != null && currentAnalysis.length() > 0) {
+                        AnswerAnalysis aa = answerMap.get(currentNum);
+                        if (aa != null) {
+                            aa.setAnalysis(currentAnalysis.toString().trim());
+                            logger.info("题目 {} 的解析已保存，长度: {}", currentNum, aa.getAnalysis().length());
+                        }
+                    }
+                    
+                    // 尝试从"故正确答案为"后面提取答案
+                    String answerPart = line.substring(line.indexOf("故正确答案为") + 5).trim();
+                    String answer = extractAnswerFromLine(answerPart);
+                    if (!answer.isEmpty() && currentNum != null) {
+                        AnswerAnalysis aa = answerMap.get(currentNum);
+                        if (aa != null && (aa.getAnswer() == null || aa.getAnswer().isEmpty())) {
+                            aa.setAnswer(answer);
+                            logger.info("题目 {} 的答案已更新为: {}", currentNum, answer);
+                        }
+                    }
+                    
+                    // 重置状态
+                    currentAnalysis.setLength(0);
+                    inAnalysis = false;
+                    currentNum = null;
+                    continue;
                 }
                 
-                // 使用正则提取题号和答案部分
-                java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("^(\\d+)[.、,，:：]\\s*([A-Ea-e]+)\\s*(.*)$");
-                java.util.regex.Matcher matcher = pattern.matcher(line);
-                if (matcher.find()) {
-                    String num = matcher.group(1).trim();
-                    String answer = matcher.group(2).toUpperCase();
-                    String analysis = matcher.group(3).trim();
-                    
-                    AnswerAnalysis aa = new AnswerAnalysis();
-                    aa.setAnswer(answer);
-                    answerMap.put(num, aa);
-                    currentNum = num;
-                    
-                    // 如果有解析内容，直接保存
-                    if (!analysis.isEmpty()) {
-                        currentAnalysis.append(analysis).append(" ");
-                    }
-                }
-            } else if (line.matches("^[答案]+[0-9]+[：:]\\s*[A-Ea-e]+.*")) {
-                // 先保存上一题的解析
-                if (currentNum != null && currentAnalysis.length() > 0) {
-                    AnswerAnalysis aa = answerMap.get(currentNum);
-                    if (aa != null) {
-                        aa.setAnalysis(currentAnalysis.toString().trim());
-                    }
-                    currentAnalysis = new StringBuilder();
-                }
-                
-                String num = line.replaceAll("[^0-9]", "").trim();
-                String rest = line.replaceAll("^[答案]+[0-9]+[：:]", "").trim();
-                String answer = rest.replaceAll("[^A-Ea-e]", "").toUpperCase();
-                if (!answer.isEmpty()) {
-                    AnswerAnalysis aa = new AnswerAnalysis();
-                    aa.setAnswer(answer);
-                    answerMap.put(num, aa);
-                    currentNum = num;
-                    
-                    // 检查是否有解析内容
-                    String analysis = rest.replaceAll("^[A-Ea-e]\\s*", "").trim();
-                    if (!analysis.isEmpty()) {
-                        currentAnalysis.append(analysis).append(" ");
-                    }
-                }
-            } else if (line.matches("^第\\d+题[：:]?\\s*[A-Ea-e]+.*")) {
-                // 格式: 第1题：A 解析内容
-                if (currentNum != null && currentAnalysis.length() > 0) {
-                    AnswerAnalysis aa = answerMap.get(currentNum);
-                    if (aa != null) {
-                        aa.setAnalysis(currentAnalysis.toString().trim());
-                    }
-                    currentAnalysis = new StringBuilder();
-                }
-                
-                java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("^第(\\d+)题[：:]?\\s*([A-Ea-e]+)\\s*(.*)$");
-                java.util.regex.Matcher matcher = pattern.matcher(line);
-                if (matcher.find()) {
-                    String num = matcher.group(1).trim();
-                    String answer = matcher.group(2).toUpperCase();
-                    String analysis = matcher.group(3).trim();
-                    
-                    AnswerAnalysis aa = new AnswerAnalysis();
-                    aa.setAnswer(answer);
-                    answerMap.put(num, aa);
-                    currentNum = num;
-                    
-                    if (!analysis.isEmpty()) {
-                        currentAnalysis.append(analysis).append(" ");
-                    }
-                }
-            } else if (line.matches("^[0-9]+[A-Ea-e]+")) {
-                // 格式: 1A
-                if (currentNum != null && currentAnalysis.length() > 0) {
-                    AnswerAnalysis aa = answerMap.get(currentNum);
-                    if (aa != null) {
-                        aa.setAnalysis(currentAnalysis.toString().trim());
-                    }
-                    currentAnalysis = new StringBuilder();
-                }
-                
-                String num = line.replaceAll("[^0-9]", "");
-                String answer = line.replaceAll("[^A-Ea-e]", "").toUpperCase();
-                if (!answer.isEmpty()) {
-                    AnswerAnalysis aa = new AnswerAnalysis();
-                    aa.setAnswer(answer);
-                    answerMap.put(num, aa);
-                    currentNum = num;
-                }
-            } else if (currentNum != null) {
-                // 继续解析内容
+                // 继续收集解析内容
                 currentAnalysis.append(line).append(" ");
+                logger.debug("追加解析内容: {}", line);
+                continue;
+            }
+            
+            // 匹配题号.答案格式（如 "21. A"）
+            java.util.regex.Pattern numAnswerPattern = java.util.regex.Pattern.compile("^(\\d+)[.．、,，]\\s*([A-Ea-e]+)\\s*(.*)$");
+            java.util.regex.Matcher numAnswerMatcher = numAnswerPattern.matcher(line);
+            
+            if (numAnswerMatcher.find()) {
+                String num = numAnswerMatcher.group(1).trim();
+                String answer = numAnswerMatcher.group(2).toUpperCase();
+                
+                AnswerAnalysis aa = new AnswerAnalysis();
+                aa.setAnswer(answer);
+                answerMap.put(num, aa);
+                currentNum = num;
+                logger.info("匹配题目 {}，答案: {}", num, answer);
+            }
+            // 处理章节标题（如"第二部分 言语理解与表达"）
+            else if (line.matches("^[第]?[一二三四五六七八九十]+[部分编章节]?\\s+.+")) {
+                // 章节标题，重置当前题目状态
+                currentNum = null;
+                currentAnalysis.setLength(0);
+                inAnalysis = false;
+                logger.debug("遇到章节标题: {}", line);
             }
         }
         
-        // 保存最后一题的解析
+        logger.info("========== 解析答案文件完成 ==========");
+        logger.info("共解析到 {} 道题的答案", answerMap.size());
+        if (!answerMap.isEmpty()) {
+            logger.info("解析到的题号: {}", String.join(", ", answerMap.keySet()));
+            // 打印详细信息
+            for (String num : answerMap.keySet()) {
+                AnswerAnalysis aa = answerMap.get(num);
+                logger.info("题目 {}: 答案={}, 解析长度={}", num, aa.getAnswer(), 
+                    aa.getAnalysis() != null ? aa.getAnalysis().length() : 0);
+            }
+        }
+        
+        return answerMap;
+    }
+    
+    /**
+     * 保存当前题目的解析内容
+     */
+    private void saveCurrentAnalysis(Map<String, AnswerAnalysis> answerMap, String currentNum, 
+                                     StringBuilder currentAnalysis) {
         if (currentNum != null && currentAnalysis.length() > 0) {
             AnswerAnalysis aa = answerMap.get(currentNum);
             if (aa != null) {
-                aa.setAnalysis(currentAnalysis.toString().trim());
+                String existingAnalysis = aa.getAnalysis();
+                if (existingAnalysis != null && !existingAnalysis.isEmpty()) {
+                    aa.setAnalysis(existingAnalysis + " " + currentAnalysis.toString().trim());
+                } else {
+                    aa.setAnalysis(currentAnalysis.toString().trim());
+                }
+                logger.debug("保存题目 {} 的解析，长度={}", currentNum, aa.getAnalysis().length());
             }
+            currentAnalysis.setLength(0);
         }
-        
-        logger.info("解析答案文件完成，共匹配 {} 道题的答案", answerMap.size());
-        return answerMap;
+    }
+    
+    /**
+     * 从行中提取题号
+     */
+    private String extractNumberFromLine(String line) {
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("(\\d+)");
+        java.util.regex.Matcher matcher = pattern.matcher(line);
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+        return "";
+    }
+    
+    /**
+     * 从行中提取答案
+     */
+    private String extractAnswerFromLine(String line) {
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("([A-Ea-e]+)");
+        java.util.regex.Matcher matcher = pattern.matcher(line);
+        if (matcher.find()) {
+            return matcher.group(1).toUpperCase();
+        }
+        return "";
+    }
+    
+    /**
+     * 从行中提取解析内容（移除题号和答案后）
+     */
+    private String extractAnalysisFromLine(String line, String answer) {
+        // 移除题号部分
+        String result = line.replaceAll("\\d+[.．、,，:：]\\s*", "");
+        // 移除答案标记
+        result = result.replaceAll("^[答案]+[0-9]*[：:]?\\s*", "");
+        result = result.replaceAll("^第\\d+题[：:]?\\s*", "");
+        result = result.replaceAll("^【答案】\\s*", "");
+        result = result.replaceAll("^参考答案[：:]?\\s*", "");
+        // 移除答案字母
+        result = result.replaceAll("^[A-Ea-e]\\s*", "");
+        result = result.replaceAll("\\s*[A-Ea-e]\\s*$", "");
+        return result.trim();
     }
 
     /**
@@ -877,22 +932,56 @@ public class BatchImportController {
             logger.info("可用的答案题号: {}", String.join(", ", answerMap.keySet()));
         }
         
+        // 第一步：按题号精确匹配
         for (ParsedQuestionDTO question : questions) {
             String num = String.valueOf(question.getOrderNum());
             if (answerMap.containsKey(num)) {
                 AnswerAnalysis aa = answerMap.get(num);
                 question.setCorrectAnswer(aa.getAnswer());
                 question.setAnalysis(aa.getAnalysis());
-                logger.debug("题目 {} 匹配到答案: {}, 解析: {}", num, aa.getAnswer(), 
-                    aa.getAnalysis() != null && aa.getAnalysis().length() > 50 ? 
-                        aa.getAnalysis().substring(0, 50) + "..." : aa.getAnalysis());
+                logger.debug("题目 {} 按题号匹配到答案: {}", num, aa.getAnswer());
                 matchedCount++;
-            } else {
-                logger.debug("题目 {} 未匹配到答案", num);
-                unmatchedCount++;
             }
         }
         
+        logger.info("按题号精确匹配完成: 匹配 {} 道", matchedCount);
+        
+        // 如果精确匹配的数量较少（少于一半），尝试按顺序匹配
+        if (matchedCount < questions.size() / 2 && !answerMap.isEmpty()) {
+            logger.info("精确匹配数量较少，尝试按顺序匹配...");
+            
+            // 将答案按题号排序
+            List<String> sortedAnswerNums = new ArrayList<>(answerMap.keySet());
+            sortedAnswerNums.sort((a, b) -> {
+                try {
+                    return Integer.compare(Integer.parseInt(a), Integer.parseInt(b));
+                } catch (NumberFormatException e) {
+                    return a.compareTo(b);
+                }
+            });
+            
+            // 按顺序匹配：答案文件中的第N条答案对应题目文件中的第N题
+            int orderIndex = 0;
+            for (ParsedQuestionDTO question : questions) {
+                // 如果已经有答案，跳过
+                if (question.getCorrectAnswer() != null && !question.getCorrectAnswer().isEmpty()) {
+                    continue;
+                }
+                
+                if (orderIndex < sortedAnswerNums.size()) {
+                    String answerNum = sortedAnswerNums.get(orderIndex);
+                    AnswerAnalysis aa = answerMap.get(answerNum);
+                    question.setCorrectAnswer(aa.getAnswer());
+                    question.setAnalysis(aa.getAnalysis());
+                    logger.debug("题目 {} 按顺序匹配到答案(原题号{}): {}", 
+                        question.getOrderNum(), answerNum, aa.getAnswer());
+                    matchedCount++;
+                }
+                orderIndex++;
+            }
+        }
+        
+        unmatchedCount = questions.size() - matchedCount;
         logger.info("答案匹配完成: 匹配 {} 道，未匹配 {} 道", matchedCount, unmatchedCount);
     }
 
@@ -938,5 +1027,172 @@ public class BatchImportController {
             }
         }
         return null;
+    }
+    
+    /**
+     * 提取分类标题（支持多种格式）
+     * 支持格式：
+     * - 第一部分 常识判断
+     * - 第二编 数量关系
+     * - 第三章 言语理解与表达
+     * - 常识判断
+     * - 第一部分 常识判断 (共20题)
+     */
+    private String extractCategory(String line) {
+        // 模式1：第X部分/编/章 标题
+        Pattern pattern1 = Pattern.compile("^第[一二三四五六七八九十\\d]+(部分|编|章)\\s+(.+)");
+        Matcher matcher1 = pattern1.matcher(line);
+        if (matcher1.find()) {
+            String category = matcher1.group(2).trim();
+            // 移除末尾的题数信息，如"(共20题)"
+            category = category.replaceAll("\\(共\\d+题\\)$", "").trim();
+            return category;
+        }
+        
+        // 模式2：单纯的分类名称（匹配系统支持的分类）
+        String[] knownCategories = {
+            "政治理论", "数量关系", "资料分析", "常识判断", 
+            "判断推理", "言语理解", "言语理解与表达"
+        };
+        for (String cat : knownCategories) {
+            if (line.contains(cat)) {
+                return cat;
+            }
+        }
+        
+        return null;
+    }
+
+    /**
+     * 导入题目到 test 表（测试导入功能）
+     */
+    @PostMapping("/batch-import/test")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> importToTestTable(
+            @RequestParam("questionFile") MultipartFile questionFile,
+            @RequestParam(value = "answerFile", required = false) MultipartFile answerFile,
+            @RequestParam(value = "category", required = false) String category) {
+        
+        logger.info("收到导入到 test 表请求: questionFile={}, answerFile={}, category={}",
+                    questionFile.getOriginalFilename(),
+                    answerFile != null ? answerFile.getOriginalFilename() : "无",
+                    category);
+        
+        try {
+            // 1. 解析题目文件
+            List<String> questionLines = parseDocument(questionFile);
+            
+            if (questionLines.isEmpty()) {
+                return ResponseEntity.ok(ApiResponse.error("文档内容为空"));
+            }
+            
+            // 2. 识别题目（支持资料分析大题分组）
+            Map<String, Object> parseResult = parseQuestionsWithMaterial(questionLines);
+            List<ParsedQuestionDTO> normalQuestions = (List<ParsedQuestionDTO>) parseResult.get("normalQuestions");
+            List<MaterialQuestionDTO> materialQuestions = (List<MaterialQuestionDTO>) parseResult.get("materialQuestions");
+            
+            // 合并所有题目用于导入
+            List<ParsedQuestionDTO> allQuestions = new ArrayList<>(normalQuestions);
+            for (MaterialQuestionDTO mq : materialQuestions) {
+                allQuestions.addAll(mq.getSubQuestions());
+            }
+            
+            if (allQuestions.isEmpty()) {
+                return ResponseEntity.ok(ApiResponse.error("未能识别到有效题目，请检查文档格式"));
+            }
+            
+            // 3. 解析答案文件（如果提供）
+            if (answerFile != null && !answerFile.isEmpty()) {
+                Map<String, AnswerAnalysis> answers = parseAnswerFile(answerFile);
+                // 为普通题目匹配答案
+                matchAnswers(normalQuestions, answers);
+                // 为材料大题的子题目匹配答案
+                for (MaterialQuestionDTO mq : materialQuestions) {
+                    matchAnswers(mq.getSubQuestions(), answers);
+                }
+            }
+            
+            // 4. 如果指定了分类，覆盖识别的分类
+            if (category != null && !category.isEmpty()) {
+                for (ParsedQuestionDTO question : normalQuestions) {
+                    question.setCategory(category);
+                }
+                for (MaterialQuestionDTO mq : materialQuestions) {
+                    mq.setCategory(category);
+                    for (ParsedQuestionDTO sq : mq.getSubQuestions()) {
+                        sq.setCategory(category);
+                    }
+                }
+            }
+            
+            // 5. 导入到 test 表
+            Map<String, Object> importResult = testImportService.importQuestionsToTest(allQuestions);
+            
+            logger.info("导入到 test 表完成: total={}, saved={}", 
+                        allQuestions.size(), importResult.get("saved"));
+            
+            return ResponseEntity.ok(ApiResponse.success(importResult));
+            
+        } catch (Exception e) {
+            logger.error("导入到 test 表失败", e);
+            return ResponseEntity.ok(ApiResponse.error("导入失败: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * 清空 test 表
+     */
+    @DeleteMapping("/batch-import/test")
+    public ResponseEntity<ApiResponse<String>> clearTestTable() {
+        try {
+            testImportService.clearTestTable();
+            logger.info("已清空 test 表");
+            return ResponseEntity.ok(ApiResponse.success("已清空 test 表"));
+        } catch (Exception e) {
+            logger.error("清空 test 表失败", e);
+            return ResponseEntity.ok(ApiResponse.error("清空失败: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * 获取 test 表中的题目数量
+     */
+    @GetMapping("/batch-import/test/count")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getTestTableCount() {
+        try {
+            long count = testImportService.getTestTableCount();
+            Map<String, Object> result = new HashMap<>();
+            result.put("count", count);
+            return ResponseEntity.ok(ApiResponse.success(result));
+        } catch (Exception e) {
+            logger.error("获取 test 表数量失败", e);
+            return ResponseEntity.ok(ApiResponse.error("获取失败: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * 保存题目到正式的 questions_total 表
+     */
+    @PostMapping("/batch-import/save")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> saveQuestions(
+            @RequestBody ImportRequestDTO request) {
+        
+        List<ParsedQuestionDTO> questions = request.getQuestions();
+        String source = request.getSource();
+        
+        logger.info("收到保存题目请求，共 {} 道题目，来源: {}", questions.size(), source);
+        
+        try {
+            // 将题目导入到 test 表进行测试
+            Map<String, Object> importResult = testImportService.importQuestionsToTest(questions, source);
+            
+            logger.info("题目保存到 test 表完成: total={}, saved={}", 
+                        questions.size(), importResult.get("saved"));
+            
+            return ResponseEntity.ok(ApiResponse.success(importResult));
+            
+        } catch (Exception e) {
+            logger.error("保存题目失败", e);
+            return ResponseEntity.ok(ApiResponse.error("保存失败: " + e.getMessage()));
+        }
     }
 }

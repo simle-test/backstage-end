@@ -40,4 +40,14 @@ public interface QuestionService {
      * 获取题目详情
      */
     QuestionDetailResponse getQuestionDetail(Integer id);
+
+    /**
+     * 获取近期新增题目列表
+     */
+    QuestionListResponse getRecentQuestions(Integer days, Integer page, Integer size, String category);
+
+    /**
+     * 获取各分类近期新增统计
+     */
+    Object getRecentStats(Integer days);
 }

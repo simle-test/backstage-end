@@ -5,7 +5,6 @@ package com.example.backstage.dto.response;
  */
 public class RankingResponse {
     private Integer id;
-    private Integer rank;
     private String name;
     private String avatar;
     private String color;
@@ -14,9 +13,8 @@ public class RankingResponse {
 
     public RankingResponse() {}
 
-    public RankingResponse(Integer id, Integer rank, String name, String avatar, String color, String desc, Long solved) {
+    public RankingResponse(Integer id, String name, String avatar, String color, String desc, Long solved) {
         this.id = id;
-        this.rank = rank;
         this.name = name;
         this.avatar = avatar;
         this.color = color;
@@ -27,8 +25,6 @@ public class RankingResponse {
     // Getters and Setters
     public Integer getId() { return id; }
     public void setId(Integer id) { this.id = id; }
-    public Integer getRank() { return rank; }
-    public void setRank(Integer rank) { this.rank = rank; }
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
     public String getAvatar() { return avatar; }

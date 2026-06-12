@@ -14,8 +14,6 @@ public class UserListItem {
     private String status;
     private String statusText;
     private String joinDate;
-    private String avatar;
-    private String color;
 
     public UserListItem() {}
 
@@ -31,23 +29,6 @@ public class UserListItem {
         this.status = status;
         this.statusText = statusText;
         this.joinDate = joinDate;
-    }
-
-    public UserListItem(Long id, String username, String email, String role, String roleText,
-                       Long practiceCount, Double passRate, String joinDate, String status, 
-                       String statusText, String avatar, String color) {
-        this.id = id;
-        this.username = username;
-        this.email = email;
-        this.role = role;
-        this.roleText = roleText;
-        this.practiceCount = practiceCount;
-        this.passRate = passRate;
-        this.joinDate = joinDate;
-        this.status = status;
-        this.statusText = statusText;
-        this.avatar = avatar;
-        this.color = color;
     }
 
     // Getters and Setters
@@ -71,8 +52,4 @@ public class UserListItem {
     public void setStatusText(String statusText) { this.statusText = statusText; }
     public String getJoinDate() { return joinDate; }
     public void setJoinDate(String joinDate) { this.joinDate = joinDate; }
-    public String getAvatar() { return avatar; }
-    public void setAvatar(String avatar) { this.avatar = avatar; }
-    public String getColor() { return color; }
-    public void setColor(String color) { this.color = color; }
 }

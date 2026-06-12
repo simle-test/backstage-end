@@ -9,6 +9,7 @@ public class QuestionStatisticsResponse {
     private Long mediumCount;
     private Long hardCount;
     private Double trend;
+    private Long todayCount;
 
     public QuestionStatisticsResponse() {}
 
@@ -20,6 +21,16 @@ public class QuestionStatisticsResponse {
         this.trend = trend;
     }
 
+    public QuestionStatisticsResponse(Long total, Long easyCount, Long mediumCount, Long hardCount, Double trend, Long todayCount) {
+        this.total = total;
+        this.easyCount = easyCount;
+        this.mediumCount = mediumCount;
+        this.hardCount = hardCount;
+        this.trend = trend;
+        this.todayCount = todayCount;
+    }
+
+    // Getters and Setters
     public Long getTotal() { return total; }
     public void setTotal(Long total) { this.total = total; }
     public Long getEasyCount() { return easyCount; }
@@ -30,4 +41,6 @@ public class QuestionStatisticsResponse {
     public void setHardCount(Long hardCount) { this.hardCount = hardCount; }
     public Double getTrend() { return trend; }
     public void setTrend(Double trend) { this.trend = trend; }
+    public Long getTodayCount() { return todayCount; }
+    public void setTodayCount(Long todayCount) { this.todayCount = todayCount; }
 }

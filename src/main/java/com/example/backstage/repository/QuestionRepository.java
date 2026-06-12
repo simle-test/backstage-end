@@ -61,4 +61,30 @@ public interface QuestionRepository extends JpaRepository<Question, Integer> {
      */
     @Query("SELECT q FROM Question q WHERE q.hasMaterial = true OR (q.imageUrl IS NOT NULL AND q.imageUrl != '')")
     java.util.List<Question> findMaterialAnalysisQuestions();
+
+    /**
+     * 统计今日新增题目数量
+     */
+    @Query("SELECT COUNT(q) FROM Question q WHERE q.createdAt >= :startOfDay")
+    long countByCreatedAtAfter(java.time.LocalDateTime startOfDay);
+
+    /**
+     * 查询指定时间之后创建的题目（分页）
+     */
+    Page<Question> findByCreatedAtAfter(java.time.LocalDateTime startTime, Pageable pageable);
+
+    /**
+     * 查询指定分类和时间之后创建的题目（分页）
+     */
+    Page<Question> findByCategoryIdAndCreatedAtAfter(String categoryId, java.time.LocalDateTime startTime, Pageable pageable);
+
+    /**
+     * 统计指定分类和时间之后创建的题目数量
+     */
+    long countByCategoryIdAndCreatedAtAfter(String categoryId, java.time.LocalDateTime startTime);
+
+    /**
+     * 统计指定分类和时间范围内创建的题目数量
+     */
+    long countByCategoryIdAndCreatedAtBetween(String categoryId, java.time.LocalDateTime startTime, java.time.LocalDateTime endTime);
 }

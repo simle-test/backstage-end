@@ -11,8 +11,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class AiParseServiceImpl implements AiParseService {
@@ -63,47 +65,37 @@ public class AiParseServiceImpl implements AiParseService {
     }
 
     private String buildRequestBody(String content) {
-        // 构建精心设计的Prompt，引导AI正确解析题目
+        // 限制内容长度，避免token消耗过大（大约限制在2000字符以内）
+        if (content.length() > 2000) {
+            log.warn("文档内容过长，已截断至2000字符，可能影响解析效果");
+            content = content.substring(0, 2000) + "...（内容已截断）";
+        }
+        
+        // 使用更简洁的Prompt，减少输入token
         String prompt = """
-            请帮我解析以下文档中的题目，按照JSON格式输出。
+            解析题目JSON输出：题型type(single_choice/multiple_choice/true_false/fill_blank)、题干title、选项options数组、分类category、难度difficulty(easy/medium/hard)。题目以数字开头，选项A/B/C/D。只输出JSON数组。
             
-            文档内容：
-            ---
+            文档：
             %s
-            ---
             
-            请识别文档中的所有题目，每个题目包含：
-            1. type: 题型（单选题 single_choice，多选题 multiple_choice，判断题 true_false，填空题 fill_blank）
-            2. title: 题目内容（只包含题干，不包含选项）
-            3. options: 选项列表（格式如 ["A. 选项内容", "B. 选项内容"]）
-            4. category: 题目分类（如果文档中有分类标题如"第一部分 资料分析"，请提取）
-            5. difficulty: 难度（easy简单, medium中等, hard困难）
-            
-            注意事项：
-            - 如果文档开头有材料数据（如统计数据、文章段落），请跳过，只提取真正的题目
-            - 题目通常以数字开头（如"1."、"2."），后面跟着选项（A、B、C、D）
-            - 如果没有明确的分类，category字段可以为空字符串
-            - 只输出JSON数组，不要包含其他文字
-            
-            输出格式示例：
-            [
-              {"type": "single_choice", "title": "题目内容", "options": ["A. 选项1", "B. 选项2", "C. 选项3", "D. 选项4"], "category": "资料分析", "difficulty": "medium"},
-              {"type": "multiple_choice", "title": "多选题内容", "options": ["A. 选项1", "B. 选项2", "C. 选项3", "D. 选项4"], "category": "", "difficulty": "hard"}
-            ]
+            输出格式：[{"type":"single_choice","title":"...","options":["A.","B.","C.","D."],"category":"","difficulty":"medium"}]
             """.formatted(content);
 
         try {
-            return objectMapper.writeValueAsString(new Object() {
-                public final String model = "deepseek-chat";
-                public final Object[] messages = {
-                    new Object() {
-                        public final String role = "user";
-                        public final String content = prompt;
-                    }
-                };
-                public final double temperature = 0.1;
-                public final int max_tokens = 4000;
-            });
+            Map<String, Object> requestBodyMap = new HashMap<>();
+            requestBodyMap.put("model", "deepseek-chat");
+            
+            List<Map<String, String>> messages = new ArrayList<>();
+            Map<String, String> message = new HashMap<>();
+            message.put("role", "user");
+            message.put("content", prompt);
+            messages.add(message);
+            requestBodyMap.put("messages", messages);
+            
+            requestBodyMap.put("temperature", 0.1);
+            requestBodyMap.put("max_tokens", 2000);
+            
+            return objectMapper.writeValueAsString(requestBodyMap);
         } catch (Exception e) {
             log.error("构建请求体失败", e);
             return "{}";

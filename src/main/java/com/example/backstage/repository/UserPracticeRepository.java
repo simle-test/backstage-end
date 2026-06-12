@@ -17,14 +17,14 @@ public interface UserPracticeRepository extends JpaRepository<UserPractice, Inte
     /**
      * 查询用户刷题总数
      */
-    @Query("SELECT COUNT(up) FROM UserPractice up WHERE up.user.userId = :userId")
-    long countByUserId(@Param("userId") Integer userId);
+    @Query("SELECT COUNT(up) FROM UserPractice up WHERE up.user.id = :userId")
+    long countByUserId(@Param("userId") Long userId);
 
     /**
      * 查询用户正确数
      */
-    @Query("SELECT COUNT(up) FROM UserPractice up WHERE up.user.userId = :userId AND up.isCorrect = true")
-    long countCorrectByUserId(@Param("userId") Integer userId);
+    @Query("SELECT COUNT(up) FROM UserPractice up WHERE up.user.id = :userId AND up.isCorrect = true")
+    long countCorrectByUserId(@Param("userId") Long userId);
 
     /**
      * 查询每日提交数
@@ -35,13 +35,13 @@ public interface UserPracticeRepository extends JpaRepository<UserPractice, Inte
     /**
      * 查询各分类的正确数
      */
-    @Query("SELECT up.question.categoryId, COUNT(up) FROM UserPractice up WHERE up.user.userId = :userId AND up.isCorrect = true GROUP BY up.question.categoryId")
-    java.util.List<Object[]> countCorrectByCategory(@Param("userId") Integer userId);
+    @Query("SELECT up.question.categoryId, COUNT(up) FROM UserPractice up WHERE up.user.id = :userId AND up.isCorrect = true GROUP BY up.question.categoryId")
+    java.util.List<Object[]> countCorrectByCategory(@Param("userId") Long userId);
 
     /**
      * 查询刷题排行榜
      */
-    @Query("SELECT up.user.userId, up.user.username, COUNT(up) as solved FROM UserPractice up GROUP BY up.user.userId, up.user.username ORDER BY solved DESC")
+    @Query("SELECT up.user.id, up.user.username, COUNT(up) as solved FROM UserPractice up GROUP BY up.user.id, up.user.username ORDER BY solved DESC")
     java.util.List<Object[]> findRanking();
 
     /**
@@ -59,6 +59,6 @@ public interface UserPracticeRepository extends JpaRepository<UserPractice, Inte
     /**
      * 查询本周新增用户数
      */
-    @Query("SELECT COUNT(DISTINCT up.user.userId) FROM UserPractice up WHERE up.createdAt >= :startDate")
+    @Query("SELECT COUNT(DISTINCT up.user.id) FROM UserPractice up WHERE up.createdAt >= :startDate")
     long countActiveUsersSince(@Param("startDate") LocalDateTime startDate);
 }

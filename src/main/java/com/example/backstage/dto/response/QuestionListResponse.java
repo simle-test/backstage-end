@@ -20,6 +20,7 @@ public class QuestionListResponse {
         this.size = size;
     }
 
+    // Getters and Setters
     public List<QuestionListItem> getList() { return list; }
     public void setList(List<QuestionListItem> list) { this.list = list; }
     public Long getTotal() { return total; }

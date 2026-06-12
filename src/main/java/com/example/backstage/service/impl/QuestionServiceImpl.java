@@ -3,9 +3,7 @@ package com.example.backstage.service.impl;
 import com.example.backstage.dto.request.CreateQuestionRequest;
 import com.example.backstage.dto.request.UpdateQuestionRequest;
 import com.example.backstage.dto.response.*;
-import com.example.backstage.entity.Material;
 import com.example.backstage.entity.Question;
-import com.example.backstage.repository.MaterialRepository;
 import com.example.backstage.repository.QuestionRepository;
 import com.example.backstage.service.QuestionService;
 
@@ -18,6 +16,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -31,11 +31,9 @@ public class QuestionServiceImpl implements QuestionService {
     private static final Logger log = LoggerFactory.getLogger(QuestionServiceImpl.class);
 
     private final QuestionRepository questionRepository;
-    private final MaterialRepository materialRepository;
 
-    public QuestionServiceImpl(QuestionRepository questionRepository, MaterialRepository materialRepository) {
+    public QuestionServiceImpl(QuestionRepository questionRepository) {
         this.questionRepository = questionRepository;
-        this.materialRepository = materialRepository;
     }
     private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -74,29 +72,9 @@ public class QuestionServiceImpl implements QuestionService {
 
         Page<Question> questionPage;
 
-        // 如果查询的是材料分析题，返回有材料的题目（has_material=true或image_url不为空）
-        if ("material_analysis".equals(finalCategory)) {
-            // 查询有材料的题目：has_material=true 或者 image_url不为空
-            List<Question> materialQuestions = questionRepository.findMaterialAnalysisQuestions();
-            if (!materialQuestions.isEmpty()) {
-                // 如果有材料分析题，应用难度筛选
-                List<Question> filteredQuestions = materialQuestions.stream()
-                    .filter(q -> finalDifficulty.isEmpty() || finalDifficulty.equals(q.getDifficulty()))
-                    .filter(q -> finalKeyword.isEmpty() || 
-                        (q.getTitle() != null && q.getTitle().contains(finalKeyword)))
-                    .collect(Collectors.toList());
-                List<QuestionListItem> list = filteredQuestions.stream()
-                    .map(this::convertToListItem)
-                    .collect(Collectors.toList());
-                return new QuestionListResponse(list, (long) list.size(), page, size);
-            } else {
-                // 如果没有材料分析题，返回所有题目作为临时方案
-                questionPage = questionRepository.findByDifficultyContainingAndTitleContaining(finalDifficulty, finalKeyword, pageable);
-            }
-        } else {
-            questionPage = questionRepository.findByCategoryIdContainingAndDifficultyContainingAndTitleContaining(
-                finalCategory, finalDifficulty, finalKeyword, pageable);
-        }
+        // 按分类、难度、关键词筛选题目
+        questionPage = questionRepository.findByCategoryIdContainingAndDifficultyContainingAndTitleContaining(
+            finalCategory, finalDifficulty, finalKeyword, pageable);
 
         List<QuestionListItem> list = questionPage.getContent().stream()
             .map(this::convertToListItem)
@@ -112,8 +90,12 @@ public class QuestionServiceImpl implements QuestionService {
         long easyCount = questionRepository.countByDifficulty("easy");
         long mediumCount = questionRepository.countByDifficulty("medium");
         long hardCount = questionRepository.countByDifficulty("hard");
+        
+        // 计算今日新增题目数量
+        LocalDateTime startOfDay = LocalDate.now().atStartOfDay();
+        long todayCount = questionRepository.countByCreatedAtAfter(startOfDay);
 
-        return new QuestionStatisticsResponse(total, easyCount, mediumCount, hardCount, 0.0);
+        return new QuestionStatisticsResponse(total, easyCount, mediumCount, hardCount, 0.0, todayCount);
     }
 
     @Override
@@ -234,18 +216,87 @@ public class QuestionServiceImpl implements QuestionService {
             response.setImageUrl(IMAGE_BASE_URL + question.getImageUrl());
         }
 
-        // 如果是资料分析题，查询材料信息
+        // 如果是资料分析题，设置材料信息（材料内容存储在 contentText 字段中）
         if (question.getMaterialId() != null && "material_analysis".equals(question.getCategoryId())) {
-            Material material = materialRepository.findByMaterialId(question.getMaterialId());
-            if (material != null) {
-                response.setMaterialId(material.getMaterialId());
-                response.setMaterialTitle(material.getTitle());
-                response.setMaterialContent(material.getContent());
-                // 材料图片 URL 可以从材料的 content 中解析，或者根据 materialId 构建
-                response.setMaterialImageUrl("/api/materials/" + material.getMaterialId() + "/image");
-            }
+            response.setMaterialId(question.getMaterialId());
+            // 材料标题可以从题目标题或分类名称中获取
+            response.setMaterialTitle(question.getCategoryName() != null ? question.getCategoryName() : "资料分析");
+            // 材料内容存储在 contentText 字段中
+            response.setMaterialContent(question.getContentText());
         }
 
         return response;
+    }
+
+    @Override
+    public QuestionListResponse getRecentQuestions(Integer days, Integer page, Integer size, String category) {
+        LocalDateTime startTime = LocalDateTime.now().minusDays(days);
+        Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+
+        Page<Question> questionPage;
+
+        if (category != null && !category.isEmpty()) {
+            questionPage = questionRepository.findByCategoryIdAndCreatedAtAfter(category, startTime, pageable);
+        } else {
+            questionPage = questionRepository.findByCreatedAtAfter(startTime, pageable);
+        }
+
+        List<QuestionListItem> list = questionPage.getContent().stream()
+            .map(this::convertToListItem)
+            .collect(Collectors.toList());
+
+        return new QuestionListResponse(
+            list, questionPage.getTotalElements(), page, size);
+    }
+
+    @Override
+    public Object getRecentStats(Integer days) {
+        LocalDateTime startTime = LocalDateTime.now().minusDays(days);
+        
+        Map<String, Object> result = new HashMap<>();
+        List<Map<String, Object>> categoryStats = new ArrayList<>();
+        
+        for (Map.Entry<String, String> entry : CATEGORY_MAP.entrySet()) {
+            String categoryId = entry.getKey();
+            String categoryName = entry.getValue();
+            
+            long count = questionRepository.countByCategoryIdAndCreatedAtAfter(categoryId, startTime);
+            
+            // 计算较上周增长率
+            LocalDateTime lastWeekStart = startTime.minusDays(days);
+            LocalDateTime lastWeekEnd = startTime;
+            long lastWeekCount = questionRepository.countByCategoryIdAndCreatedAtBetween(categoryId, lastWeekStart, lastWeekEnd);
+            
+            int growthRate = 0;
+            if (lastWeekCount > 0) {
+                growthRate = (int) ((count - lastWeekCount) * 100 / lastWeekCount);
+            }
+            
+            Map<String, Object> stat = new HashMap<>();
+            stat.put("categoryId", categoryId);
+            stat.put("categoryName", categoryName);
+            stat.put("count", count);
+            stat.put("growthRate", growthRate);
+            
+            // 获取最新的两条题目
+            Pageable topTwo = PageRequest.of(0, 2, Sort.by(Sort.Direction.DESC, "createdAt"));
+            Page<Question> recentQuestions = questionRepository.findByCategoryIdAndCreatedAtAfter(categoryId, startTime, topTwo);
+            
+            List<Map<String, Object>> latestQuestions = new ArrayList<>();
+            for (Question q : recentQuestions.getContent()) {
+                Map<String, Object> qMap = new HashMap<>();
+                qMap.put("time", q.getCreatedAt() != null ? q.getCreatedAt().format(FORMATTER) : "");
+                qMap.put("source", q.getSource() != null ? q.getSource() : "");
+                latestQuestions.add(qMap);
+            }
+            stat.put("latestQuestions", latestQuestions);
+            
+            categoryStats.add(stat);
+        }
+        
+        result.put("categoryStats", categoryStats);
+        result.put("totalCount", categoryStats.stream().mapToLong(s -> (Long) s.get("count")).sum());
+        
+        return result;
     }
 }

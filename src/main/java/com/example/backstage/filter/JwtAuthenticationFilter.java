@@ -25,13 +25,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtUtil jwtUtil;
     private final ApplicationContext applicationContext;
-    
-    private UserService userService;
 
     public JwtAuthenticationFilter(JwtUtil jwtUtil, ApplicationContext applicationContext) {
         this.jwtUtil = jwtUtil;
         this.applicationContext = applicationContext;
     }
+    
+    private UserService userService;
 
     private UserService getUserService() {
         if (userService == null) {

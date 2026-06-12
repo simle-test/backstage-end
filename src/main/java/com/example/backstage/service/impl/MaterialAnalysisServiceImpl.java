@@ -4,14 +4,11 @@ import com.example.backstage.dto.response.MaterialAnalysisDetailResponse;
 import com.example.backstage.dto.response.MaterialProblemItem;
 import com.example.backstage.dto.request.SaveMaterialAnalysisRequest;
 import com.example.backstage.dto.request.MaterialProblemRequest;
-import com.example.backstage.entity.Material;
 import com.example.backstage.entity.MaterialProblem;
 import com.example.backstage.entity.Question;
 import com.example.backstage.repository.MaterialProblemRepository;
-import com.example.backstage.repository.MaterialRepository;
 import com.example.backstage.repository.QuestionRepository;
 import com.example.backstage.service.MaterialAnalysisService;
-import jakarta.persistence.EntityNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,7 +18,6 @@ import java.util.stream.Collectors;
 @Service
 public class MaterialAnalysisServiceImpl implements MaterialAnalysisService {
 
-    private final MaterialRepository materialRepository;
     private final QuestionRepository questionRepository;
     private final MaterialProblemRepository materialProblemRepository;
 
@@ -32,10 +28,8 @@ public class MaterialAnalysisServiceImpl implements MaterialAnalysisService {
         DIFFICULTY_MAP.put("hard", "困难");
     }
 
-    public MaterialAnalysisServiceImpl(MaterialRepository materialRepository,
-                                       QuestionRepository questionRepository,
+    public MaterialAnalysisServiceImpl(QuestionRepository questionRepository,
                                        MaterialProblemRepository materialProblemRepository) {
-        this.materialRepository = materialRepository;
         this.questionRepository = questionRepository;
         this.materialProblemRepository = materialProblemRepository;
     }
@@ -113,16 +107,20 @@ public class MaterialAnalysisServiceImpl implements MaterialAnalysisService {
             response.setProblemCount(problemItems.size());
         }
 
-        // 从material表获取材料信息
-        Material material = materialRepository.findByMaterialId(materialId);
-        if (material != null) {
-            response.setMaterialTitle(material.getTitle());
-            response.setCategoryId(material.getCategoryId());
-            response.setCategoryName(material.getCategoryName());
-            // 如果之前没有获取到内容，尝试从material表获取
-            if ((response.getMaterialContent() == null || response.getMaterialContent().isEmpty()) && material.getContent() != null) {
-                response.setMaterialContent(material.getContent());
+        // 从questions_total表获取材料标题和分类信息（使用第一个题目的信息）
+        if (!questions.isEmpty()) {
+            Question mainQuestion = questions.get(0);
+            // 设置材料标题（从题目标题或分类名称获取）
+            if (mainQuestion.getTitle() != null && !mainQuestion.getTitle().isEmpty()) {
+                response.setMaterialTitle(mainQuestion.getTitle());
+            } else if (mainQuestion.getCategoryName() != null) {
+                response.setMaterialTitle(mainQuestion.getCategoryName());
+            } else {
+                response.setMaterialTitle("资料分析");
             }
+            // 设置分类信息
+            response.setCategoryId(mainQuestion.getCategoryId());
+            response.setCategoryName(mainQuestion.getCategoryName());
         }
 
         return response;
@@ -365,33 +363,26 @@ public class MaterialAnalysisServiceImpl implements MaterialAnalysisService {
     @Override
     @Transactional
     public void saveMaterialAnalysis(SaveMaterialAnalysisRequest request) {
-        // 保存材料信息
-        Material material;
-        if (request.getMaterialId() != null) {
-            material = materialRepository.findByMaterialId(request.getMaterialId());
-            if (material == null) {
-                throw new EntityNotFoundException("材料不存在");
-            }
-        } else {
-            material = new Material();
-            material.setCategoryId("material_analysis");
-            material.setCategoryName("资料分析");
+        // 确定材料ID（从请求中获取或生成新的）
+        Integer materialId = request.getMaterialId();
+        if (materialId == null) {
+            // 生成新的材料ID（使用当前时间戳）
+            materialId = (int) (System.currentTimeMillis() / 1000);
         }
-
-        material.setTitle(request.getMaterialTitle());
-        material.setContent(request.getMaterialContent());
-        material = materialRepository.save(material);
 
         // 保存或更新主表题目（用于存储content_text主题干、source和year）
         Question mainQuestion;
-        List<Question> existingQuestions = questionRepository.findByMaterialId(material.getMaterialId());
+        List<Question> existingQuestions = questionRepository.findByMaterialId(materialId);
         if (!existingQuestions.isEmpty()) {
             mainQuestion = existingQuestions.get(0);
         } else {
             mainQuestion = new Question();
-            mainQuestion.setMaterialId(material.getMaterialId());
+            mainQuestion.setMaterialId(materialId);
             mainQuestion.setHasMaterial(true);
+            mainQuestion.setCategoryId("material_analysis");
+            mainQuestion.setCategoryName("资料分析");
         }
+        mainQuestion.setTitle(request.getMaterialTitle());
         mainQuestion.setContentText(request.getMaterialContent());
         mainQuestion.setSource(request.getSource());
         mainQuestion.setYear(request.getYear());
@@ -400,7 +391,7 @@ public class MaterialAnalysisServiceImpl implements MaterialAnalysisService {
         // 保存小题列表
         if (request.getProblems() != null) {
             // 获取现有小题
-            List<MaterialProblem> existingProblems = materialProblemRepository.findByMaterialIdOrderByIdAsc(material.getMaterialId());
+            List<MaterialProblem> existingProblems = materialProblemRepository.findByMaterialIdOrderByIdAsc(materialId);
             Map<Integer, MaterialProblem> existingProblemMap = existingProblems.stream()
                     .collect(Collectors.toMap(MaterialProblem::getId, p -> p));
 
@@ -412,7 +403,7 @@ public class MaterialAnalysisServiceImpl implements MaterialAnalysisService {
                     problem = existingProblemMap.get(problemItem.getId());
                 } else {
                     problem = new MaterialProblem();
-                    problem.setMaterialId(material.getMaterialId());
+                    problem.setMaterialId(materialId);
                 }
                 problem.setTitle(problemItem.getQuestionText());
                 materialProblemRepository.save(problem);
