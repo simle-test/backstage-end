@@ -31,12 +31,77 @@ public class AiParseServiceImpl implements AiParseService {
         this.objectMapper = new ObjectMapper();
     }
 
+    private static final int MAX_CONTENT_LENGTH = 30000;
+    private static final int MAX_TOKENS = 12000;
+    private static final int CHUNK_SIZE = 8000;
+
     @Override
     public List<ParsedQuestionDTO> parseWithAI(String content) {
         List<ParsedQuestionDTO> questions = new ArrayList<>();
         
+        if (content.length() <= MAX_CONTENT_LENGTH) {
+            // 内容较短，直接解析
+            questions = parseSingleChunk(content);
+        } else {
+            // 内容较长，分段解析
+            log.info("文档内容过长({}字符)，开始分段解析", content.length());
+            List<String> chunks = splitContentIntoChunks(content);
+            
+            int totalQuestions = 0;
+            for (int i = 0; i < chunks.size(); i++) {
+                String chunk = chunks.get(i);
+                log.info("正在解析第 {}/{} 段，长度: {} 字符", i + 1, chunks.size(), chunk.length());
+                
+                List<ParsedQuestionDTO> chunkQuestions = parseSingleChunk(chunk);
+                questions.addAll(chunkQuestions);
+                totalQuestions += chunkQuestions.size();
+                
+                log.info("第 {}/{} 段解析完成，识别 {} 道题目", i + 1, chunks.size(), chunkQuestions.size());
+                
+                // 段间等待，避免API限流
+                if (i < chunks.size() - 1) {
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+            
+            log.info("分段解析完成，共识别 {} 道题目", totalQuestions);
+        }
+        
+        log.info("AI解析完成，共识别 {} 道题目", questions.size());
+        return questions;
+    }
+
+    private List<String> splitContentIntoChunks(String content) {
+        List<String> chunks = new ArrayList<>();
+        
+        // 按题目分隔符分段，尽量在题目边界处分割
+        String[] sections = content.split("(?=\\n\\d+[.、])");
+        
+        StringBuilder currentChunk = new StringBuilder();
+        for (String section : sections) {
+            if (currentChunk.length() + section.length() > CHUNK_SIZE && currentChunk.length() > 0) {
+                chunks.add(currentChunk.toString().trim());
+                currentChunk = new StringBuilder();
+            }
+            currentChunk.append(section);
+        }
+        
+        if (currentChunk.length() > 0) {
+            chunks.add(currentChunk.toString().trim());
+        }
+        
+        return chunks;
+    }
+
+    private List<ParsedQuestionDTO> parseSingleChunk(String content) {
+        List<ParsedQuestionDTO> questions = new ArrayList<>();
+        
         try {
-            // 构建请求
             String requestBody = buildRequestBody(content);
             Request request = new Request.Builder()
                     .url(config.getApiUrl())
@@ -45,14 +110,12 @@ public class AiParseServiceImpl implements AiParseService {
                     .post(RequestBody.create(requestBody, MediaType.parse("application/json")))
                     .build();
 
-            // 发送请求
             Response response = httpClient.newCall(request).execute();
             if (!response.isSuccessful()) {
                 log.error("AI API请求失败: {}", response.code());
                 return questions;
             }
 
-            // 解析响应
             String responseBody = response.body().string();
             questions = parseResponse(responseBody);
             
@@ -60,25 +123,22 @@ public class AiParseServiceImpl implements AiParseService {
             log.error("AI解析失败: {}", e.getMessage(), e);
         }
         
-        log.info("AI解析完成，共识别 {} 道题目", questions.size());
         return questions;
     }
 
     private String buildRequestBody(String content) {
-        // 限制内容长度，避免token消耗过大（大约限制在2000字符以内）
-        if (content.length() > 2000) {
-            log.warn("文档内容过长，已截断至2000字符，可能影响解析效果");
-            content = content.substring(0, 2000) + "...（内容已截断）";
+        if (content.length() > MAX_CONTENT_LENGTH) {
+            log.warn("单段内容过长，已截断至{}字符", MAX_CONTENT_LENGTH);
+            content = content.substring(0, MAX_CONTENT_LENGTH) + "...（内容已截断）";
         }
         
-        // 使用更简洁的Prompt，减少输入token
         String prompt = """
-            解析题目JSON输出：题型type(single_choice/multiple_choice/true_false/fill_blank)、题干title、选项options数组、分类category、难度difficulty(easy/medium/hard)。题目以数字开头，选项A/B/C/D。只输出JSON数组。
+            解析题目JSON输出：题型type(single_choice/multiple_choice/true_false/fill_blank)、题干title、选项options数组、分类category、难度difficulty(easy/medium/hard)、答案answer、解析analysis。题目以数字开头，选项A/B/C/D。只输出JSON数组。
             
             文档：
             %s
             
-            输出格式：[{"type":"single_choice","title":"...","options":["A.","B.","C.","D."],"category":"","difficulty":"medium"}]
+            输出格式：[{"type":"single_choice","title":"...","options":["A.","B.","C.","D."],"category":"","difficulty":"medium","answer":"A","analysis":"..."}]
             """.formatted(content);
 
         try {
@@ -93,7 +153,7 @@ public class AiParseServiceImpl implements AiParseService {
             requestBodyMap.put("messages", messages);
             
             requestBodyMap.put("temperature", 0.1);
-            requestBodyMap.put("max_tokens", 2000);
+            requestBodyMap.put("max_tokens", MAX_TOKENS);
             
             return objectMapper.writeValueAsString(requestBodyMap);
         } catch (Exception e) {
@@ -128,6 +188,8 @@ public class AiParseServiceImpl implements AiParseService {
                         question.setTitle(item.has("title") ? item.get("title").asText() : "");
                         question.setCategory(item.has("category") ? item.get("category").asText() : "");
                         question.setDifficulty(item.has("difficulty") ? item.get("difficulty").asText() : "medium");
+                        question.setCorrectAnswer(item.has("answer") ? item.get("answer").asText() : "");
+                        question.setAnalysis(item.has("analysis") ? item.get("analysis").asText() : "");
                         
                         // 解析选项
                         List<String> options = new ArrayList<>();

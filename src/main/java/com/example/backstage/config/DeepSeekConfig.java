@@ -10,7 +10,7 @@ import java.util.concurrent.TimeUnit;
 @Configuration
 public class DeepSeekConfig {
 
-    @Value("${deepseek.api-key:sk-3a9276fb957741db8fb267d6bf93cee0}")
+    @Value("${deepseek.api-key:}")
     private String apiKey;
 
     @Value("${deepseek.api-url:https://api.deepseek.com/v1/chat/completions}")

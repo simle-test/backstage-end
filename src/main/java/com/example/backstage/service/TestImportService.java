@@ -10,10 +10,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * 测试导入服务 - 将解析的题目导入到 test 表
@@ -46,21 +44,88 @@ public class TestImportService {
      */
     @Transactional
     public Map<String, Object> importQuestionsToTest(List<ParsedQuestionDTO> questions, String source) {
+        return importQuestionsToTestWithDedup(questions, source, true, "exact", 0.9, List.of("title"));
+    }
+    
+    /**
+     * 将解析的题目列表导入到 test 表（带去重参数）
+     * @param questions 题目列表
+     * @param source 来源名称
+     * @param enableDeduplication 是否启用去重
+     * @param dedupMode 去重模式：exact（精确匹配）或 similar（模糊匹配）
+     * @param similarityThreshold 相似度阈值（模糊匹配时使用）
+     * @param dedupFields 去重字段
+     */
+    @Transactional
+    public Map<String, Object> importQuestionsToTestWithDedup(
+            List<ParsedQuestionDTO> questions, 
+            String source,
+            Boolean enableDeduplication,
+            String dedupMode,
+            Double similarityThreshold,
+            List<String> dedupFields) {
+        
         Map<String, Object> result = new HashMap<>();
         List<QuestionTest> savedQuestions = new ArrayList<>();
         List<String> errors = new ArrayList<>();
+        List<Map<String, Object>> duplicatedQuestions = new ArrayList<>();
+        int skippedCount = 0;
         
         // 使用传入的source或默认值
         String finalSource = (source != null && !source.isEmpty()) ? source : "批量导入";
         
         try {
+            // 获取数据库中已存在的题目（用于去重）
+            Set<String> existingTitles = new HashSet<>();
+            if (enableDeduplication != null && enableDeduplication) {
+                List<QuestionTest> existingQuestions = questionTestRepository.findAll();
+                for (QuestionTest existing : existingQuestions) {
+                    if (existing.getTitle() != null) {
+                        existingTitles.add(normalizeForDeduplication(existing.getTitle()));
+                    }
+                }
+                logger.info("数据库中已存在 {} 道题目，将进行去重检查", existingTitles.size());
+            }
+            
+            // 用于本次导入内的去重
+            Set<String> importedTitles = new HashSet<>();
+            
             for (int i = 0; i < questions.size(); i++) {
                 ParsedQuestionDTO dto = questions.get(i);
                 try {
+                    String normalizedTitle = normalizeForDeduplication(dto.getTitle());
+                    
+                    // 检查是否与数据库中已存在的题目重复
+                    boolean isDuplicate = false;
+                    if (enableDeduplication != null && enableDeduplication && normalizedTitle != null) {
+                        isDuplicate = existingTitles.contains(normalizedTitle);
+                    }
+                    
+                    // 检查本次导入内是否重复
+                    if (!isDuplicate && normalizedTitle != null && importedTitles.contains(normalizedTitle)) {
+                        isDuplicate = true;
+                    }
+                    
+                    if (isDuplicate) {
+                        skippedCount++;
+                        Map<String, Object> dupInfo = new HashMap<>();
+                        dupInfo.put("title", truncateForLog(dto.getTitle()));
+                        dupInfo.put("index", i + 1);
+                        duplicatedQuestions.add(dupInfo);
+                        logger.info("跳过重复题目: title={}", truncateForLog(dto.getTitle()));
+                        continue;
+                    }
+                    
                     QuestionTest questionTest = convertToQuestionTest(dto, i + 1, finalSource);
                     QuestionTest saved = questionTestRepository.save(questionTest);
                     savedQuestions.add(saved);
-                    logger.info("成功保存题目到 test 表: id={}, title={}, source={}", saved.getId(), dto.getTitle(), finalSource);
+                    
+                    // 添加到已导入集合
+                    if (normalizedTitle != null) {
+                        importedTitles.add(normalizedTitle);
+                    }
+                    
+                    logger.info("成功保存题目到 test 表: id={}, title={}, source={}", saved.getId(), truncateForLog(dto.getTitle()), finalSource);
                 } catch (Exception e) {
                     String error = String.format("题目 %d 保存失败: %s", i + 1, e.getMessage());
                     errors.add(error);
@@ -71,8 +136,18 @@ public class TestImportService {
             result.put("success", true);
             result.put("total", questions.size());
             result.put("saved", savedQuestions.size());
+            result.put("skipped", skippedCount);
+            result.put("duplicates", duplicatedQuestions);
             result.put("errors", errors);
-            result.put("message", String.format("成功导入 %d 道题目到 test 表", savedQuestions.size()));
+            
+            StringBuilder message = new StringBuilder();
+            message.append(String.format("成功导入 %d 道题目", savedQuestions.size()));
+            if (skippedCount > 0) {
+                message.append(String.format("，跳过 %d 道重复题目", skippedCount));
+            }
+            result.put("message", message.toString());
+            
+            logger.info("导入完成: total={}, saved={}, skipped={}", questions.size(), savedQuestions.size(), skippedCount);
             
         } catch (Exception e) {
             logger.error("批量导入失败", e);
@@ -81,6 +156,115 @@ public class TestImportService {
         }
         
         return result;
+    }
+    
+    /**
+     * 将解析的题目列表导入到 test 表（覆盖重复模式）
+     * @param questions 题目列表
+     * @param source 来源名称
+     */
+    @Transactional
+    public Map<String, Object> importQuestionsToTestWithOverride(List<ParsedQuestionDTO> questions, String source) {
+        Map<String, Object> result = new HashMap<>();
+        List<QuestionTest> savedQuestions = new ArrayList<>();
+        List<String> errors = new ArrayList<>();
+        int overrideCount = 0;
+        
+        String finalSource = (source != null && !source.isEmpty()) ? source : "批量导入";
+        
+        try {
+            // 获取数据库中已存在的题目（用于查找重复）
+            Map<String, QuestionTest> existingByTitle = new HashMap<>();
+            List<QuestionTest> existingQuestions = questionTestRepository.findAll();
+            for (QuestionTest existing : existingQuestions) {
+                if (existing.getTitle() != null) {
+                    String normalizedTitle = normalizeForDeduplication(existing.getTitle());
+                    if (normalizedTitle != null) {
+                        existingByTitle.put(normalizedTitle, existing);
+                    }
+                }
+            }
+            logger.info("数据库中已存在 {} 道题目，将进行覆盖检查", existingByTitle.size());
+            
+            for (int i = 0; i < questions.size(); i++) {
+                ParsedQuestionDTO dto = questions.get(i);
+                try {
+                    String normalizedTitle = normalizeForDeduplication(dto.getTitle());
+                    QuestionTest existingQuestion = normalizedTitle != null ? existingByTitle.get(normalizedTitle) : null;
+                    
+                    QuestionTest questionTest;
+                    if (existingQuestion != null) {
+                        // 覆盖现有题目
+                        questionTest = convertToQuestionTest(dto, i + 1, finalSource);
+                        questionTest.setId(existingQuestion.getId());
+                        questionTest.setCreatedAt(existingQuestion.getCreatedAt());
+                        overrideCount++;
+                        logger.info("覆盖题目: id={}, title={}", existingQuestion.getId(), truncateForLog(dto.getTitle()));
+                    } else {
+                        // 新增题目
+                        questionTest = convertToQuestionTest(dto, i + 1, finalSource);
+                    }
+                    
+                    QuestionTest saved = questionTestRepository.save(questionTest);
+                    savedQuestions.add(saved);
+                    
+                    logger.info("成功保存题目: id={}, title={}, source={}", saved.getId(), truncateForLog(dto.getTitle()), finalSource);
+                } catch (Exception e) {
+                    String error = String.format("题目 %d 保存失败: %s", i + 1, e.getMessage());
+                    errors.add(error);
+                    logger.error(error, e);
+                }
+            }
+            
+            result.put("success", true);
+            result.put("total", questions.size());
+            result.put("saved", savedQuestions.size());
+            result.put("override", overrideCount);
+            result.put("errors", errors);
+            
+            StringBuilder message = new StringBuilder();
+            message.append(String.format("成功导入 %d 道题目", savedQuestions.size()));
+            if (overrideCount > 0) {
+                message.append(String.format("，覆盖 %d 道重复题目", overrideCount));
+            }
+            result.put("message", message.toString());
+            
+            logger.info("导入完成: total={}, saved={}, override={}", questions.size(), savedQuestions.size(), overrideCount);
+            
+        } catch (Exception e) {
+            logger.error("批量导入失败", e);
+            result.put("success", false);
+            result.put("message", "导入失败: " + e.getMessage());
+        }
+        
+        return result;
+    }
+    
+    /**
+     * 标准化题目用于去重比较
+     */
+    private String normalizeForDeduplication(String text) {
+        if (text == null || text.trim().isEmpty()) {
+            return null;
+        }
+        // 去除多余空白、转小写
+        String result = text.trim().toLowerCase().replaceAll("\\s+", "");
+        // 去除标点符号 - 使用字符码范围
+        result = result.replaceAll("[,./;:'\"!?()\\[\\]{}]", "");
+        // 去除常见中文标点（单个替换）
+        String chinesePunctuation = "，。、；：！？「」『』（）【】《》";
+        for (char c : chinesePunctuation.toCharArray()) {
+            result = result.replace(String.valueOf(c), "");
+        }
+        return result;
+    }
+    
+    /**
+     * 截断日志输出
+     */
+    private String truncateForLog(String text) {
+        if (text == null) return "null";
+        return text.length() > 50 ? text.substring(0, 50) + "..." : text;
     }
 
     /**

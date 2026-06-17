@@ -90,14 +90,31 @@ public class BatchImportController {
                     category, source);
         
         try {
-            // 1. 读取文档内容
-            String content = readDocumentContent(questionFile);
+            // 1. 读取文档内容（合并题目文件和答案文件）
+            StringBuilder combinedContent = new StringBuilder();
             
-            if (content.isEmpty()) {
-                return ResponseEntity.ok(ApiResponse.error("文档内容为空"));
+            // 读取题目文件
+            String questionContent = readDocumentContent(questionFile);
+            if (questionContent.isEmpty()) {
+                return ResponseEntity.ok(ApiResponse.error("题目文档内容为空"));
+            }
+            combinedContent.append("【题目内容】\n");
+            combinedContent.append(questionContent);
+            combinedContent.append("\n\n");
+            
+            // 如果有答案文件，合并到内容中
+            if (answerFile != null && !answerFile.isEmpty()) {
+                String answerContent = readDocumentContent(answerFile);
+                if (!answerContent.isEmpty()) {
+                    combinedContent.append("【答案与解析】\n");
+                    combinedContent.append(answerContent);
+                }
             }
             
-            // 2. 使用AI解析
+            String content = combinedContent.toString();
+            logger.info("合并后的文档内容长度: {} 字符", content.length());
+            
+            // 2. 使用AI解析（AI可以同时看到题目和答案/解析）
             List<ParsedQuestionDTO> parsedQuestions = aiParseService.parseWithAI(content);
             
             if (parsedQuestions.isEmpty()) {
@@ -109,13 +126,14 @@ public class BatchImportController {
                 if (parsedQuestions.isEmpty()) {
                     return ResponseEntity.ok(ApiResponse.error("未能识别到有效题目，请检查文档格式"));
                 }
+                
+                // 如果有答案文件，使用规则解析答案
+                if (answerFile != null && !answerFile.isEmpty()) {
+                    Map<String, AnswerAnalysis> answers = parseAnswerFile(answerFile);
+                    matchAnswers(parsedQuestions, answers);
+                }
             }
-            
-            // 3. 解析答案文件（如果提供）
-            if (answerFile != null && !answerFile.isEmpty()) {
-                Map<String, AnswerAnalysis> answers = parseAnswerFile(answerFile);
-                matchAnswers(parsedQuestions, answers);
-            }
+            // AI解析成功时，答案和解析已由AI提取，无需再解析答案文件
             
             // 4. 如果指定了分类，覆盖识别的分类
             if (category != null && !category.isEmpty()) {
@@ -324,10 +342,25 @@ public class BatchImportController {
                     }
                 }
             }
+        } else if (lowerFilename.endsWith(".pdf")) {
+            // 使用PDFBox解析PDF文件
+            try (org.apache.pdfbox.pdmodel.PDDocument document = org.apache.pdfbox.Loader.loadPDF(file.getBytes())) {
+                org.apache.pdfbox.text.PDFTextStripper stripper = new org.apache.pdfbox.text.PDFTextStripper();
+                stripper.setSortByPosition(true);
+                String pdfText = stripper.getText(document);
+                // 清理PDF文本中的多余空白
+                String[] lines = pdfText.split("\n");
+                for (String line : lines) {
+                    String trimmedLine = line.trim();
+                    if (!trimmedLine.isEmpty()) {
+                        content.append(trimmedLine).append("\n");
+                    }
+                }
+            }
         } else if (lowerFilename.endsWith(".doc")) {
             throw new IOException("暂不支持 .doc 格式，请将文档另存为 .docx 格式后重试");
         } else {
-            throw new IOException("不支持的文件格式，请上传 .docx 或 .txt 文件");
+            throw new IOException("不支持的文件格式，请上传 .docx、.txt 或 .pdf 文件");
         }
         
         return content.toString().trim();
@@ -365,10 +398,25 @@ public class BatchImportController {
                     }
                 }
             }
+        } else if (lowerFilename.endsWith(".pdf")) {
+            // 使用PDFBox解析PDF文件
+            try (org.apache.pdfbox.pdmodel.PDDocument document = org.apache.pdfbox.Loader.loadPDF(file.getBytes())) {
+                org.apache.pdfbox.text.PDFTextStripper stripper = new org.apache.pdfbox.text.PDFTextStripper();
+                stripper.setSortByPosition(true);
+                String pdfText = stripper.getText(document);
+                // 清理PDF文本中的多余空白
+                String[] pdfLines = pdfText.split("\n");
+                for (String line : pdfLines) {
+                    String trimmedLine = line.trim();
+                    if (!trimmedLine.isEmpty()) {
+                        lines.add(trimmedLine);
+                    }
+                }
+            }
         } else if (lowerFilename.endsWith(".doc")) {
             throw new IOException("暂不支持 .doc 格式，请将文档另存为 .docx 格式后重试");
         } else {
-            throw new IOException("不支持的文件格式，请上传 .docx 或 .txt 文件");
+            throw new IOException("不支持的文件格式，请上传 .docx、.txt 或 .pdf 文件");
         }
         
         return lines;
@@ -752,9 +800,32 @@ public class BatchImportController {
             logger.info("答案文件第 {} 行: '{}'", lineNum, line);
         }
         
-        String currentNum = null;
+        // 步骤1：先收集所有答案
+        List<String> answerNums = new ArrayList<>(); // 按顺序保存题号
+        for (String line : lines) {
+            line = line.trim();
+            if (line.isEmpty()) continue;
+            
+            // 匹配题号.答案格式（如 "21. A"）
+            java.util.regex.Pattern numAnswerPattern = java.util.regex.Pattern.compile("^(\\d+)[.．、,，]\\s*([A-Ea-e]+)\\s*(.*)$");
+            java.util.regex.Matcher numAnswerMatcher = numAnswerPattern.matcher(line);
+            
+            if (numAnswerMatcher.find()) {
+                String num = numAnswerMatcher.group(1).trim();
+                String answer = numAnswerMatcher.group(2).toUpperCase();
+                
+                AnswerAnalysis aa = new AnswerAnalysis();
+                aa.setAnswer(answer);
+                answerMap.put(num, aa);
+                answerNums.add(num); // 记录顺序
+                logger.info("匹配题目 {}，答案: {}", num, answer);
+            }
+        }
+        
+        // 步骤2：解析解析内容，按顺序匹配答案
         StringBuilder currentAnalysis = new StringBuilder();
-        boolean inAnalysis = false; // 是否正在解析【解析】部分
+        boolean inAnalysis = false;
+        int analysisIndex = 0; // 当前解析的索引，用于按顺序匹配
         
         for (String line : lines) {
             line = line.trim();
@@ -762,13 +833,48 @@ public class BatchImportController {
             
             // 检测【解析】标记，开始收集解析内容
             if (line.contains("【解析】")) {
-                inAnalysis = true;
                 // 提取【解析】后面的内容
-                String analysisStart = line.substring(line.indexOf("【解析】") + 4).trim();
-                if (!analysisStart.isEmpty()) {
-                    currentAnalysis.append(analysisStart).append(" ");
+                String analysisContent = line.substring(line.indexOf("【解析】") + 4).trim();
+                
+                // 检查同一行是否包含"故正确答案为"
+                if (analysisContent.contains("故正确答案为")) {
+                    // 在同一行内完成解析提取
+                    int endIndex = analysisContent.indexOf("故正确答案为");
+                    String beforeAnswer = analysisContent.substring(0, endIndex).trim();
+                    if (!beforeAnswer.isEmpty()) {
+                        // 按顺序匹配解析到答案
+                        if (analysisIndex < answerNums.size()) {
+                            String num = answerNums.get(analysisIndex);
+                            AnswerAnalysis aa = answerMap.get(num);
+                            if (aa != null) {
+                                aa.setAnalysis(beforeAnswer);
+                                logger.info("题目 {} 的解析已保存，长度: {}", num, beforeAnswer.length());
+                            }
+                        }
+                    }
+                    
+                    // 尝试从"故正确答案为"后面提取答案
+                    String answerPart = analysisContent.substring(endIndex + 5).trim();
+                    String answer = extractAnswerFromLine(answerPart);
+                    if (!answer.isEmpty() && analysisIndex < answerNums.size()) {
+                        String num = answerNums.get(analysisIndex);
+                        AnswerAnalysis aa = answerMap.get(num);
+                        if (aa != null && (aa.getAnswer() == null || aa.getAnswer().isEmpty())) {
+                            aa.setAnswer(answer);
+                            logger.info("题目 {} 的答案已更新为: {}", num, answer);
+                        }
+                    }
+                    
+                    analysisIndex++;
+                    logger.debug("解析完成，解析索引: {}", analysisIndex);
+                } else {
+                    // 解析内容跨行，开始收集
+                    inAnalysis = true;
+                    if (!analysisContent.isEmpty()) {
+                        currentAnalysis.append(analysisContent).append(" ");
+                    }
+                    logger.debug("进入解析模式，解析索引: {}, 解析开始内容: {}", analysisIndex, analysisContent);
                 }
-                logger.debug("进入解析模式，当前题目: {}, 解析开始内容: {}", currentNum, analysisStart);
                 continue;
             }
             
@@ -785,30 +891,32 @@ public class BatchImportController {
                         }
                     }
                     
-                    // 保存解析到当前题目
-                    if (currentNum != null && currentAnalysis.length() > 0) {
-                        AnswerAnalysis aa = answerMap.get(currentNum);
+                    // 按顺序匹配解析到答案
+                    if (analysisIndex < answerNums.size() && currentAnalysis.length() > 0) {
+                        String num = answerNums.get(analysisIndex);
+                        AnswerAnalysis aa = answerMap.get(num);
                         if (aa != null) {
                             aa.setAnalysis(currentAnalysis.toString().trim());
-                            logger.info("题目 {} 的解析已保存，长度: {}", currentNum, aa.getAnalysis().length());
+                            logger.info("题目 {} 的解析已保存，长度: {}", num, aa.getAnalysis().length());
                         }
                     }
                     
                     // 尝试从"故正确答案为"后面提取答案
                     String answerPart = line.substring(line.indexOf("故正确答案为") + 5).trim();
                     String answer = extractAnswerFromLine(answerPart);
-                    if (!answer.isEmpty() && currentNum != null) {
-                        AnswerAnalysis aa = answerMap.get(currentNum);
+                    if (!answer.isEmpty() && analysisIndex < answerNums.size()) {
+                        String num = answerNums.get(analysisIndex);
+                        AnswerAnalysis aa = answerMap.get(num);
                         if (aa != null && (aa.getAnswer() == null || aa.getAnswer().isEmpty())) {
                             aa.setAnswer(answer);
-                            logger.info("题目 {} 的答案已更新为: {}", currentNum, answer);
+                            logger.info("题目 {} 的答案已更新为: {}", num, answer);
                         }
                     }
                     
-                    // 重置状态
+                    // 重置状态，移动到下一个解析
                     currentAnalysis.setLength(0);
                     inAnalysis = false;
-                    currentNum = null;
+                    analysisIndex++;
                     continue;
                 }
                 
@@ -816,29 +924,6 @@ public class BatchImportController {
                 currentAnalysis.append(line).append(" ");
                 logger.debug("追加解析内容: {}", line);
                 continue;
-            }
-            
-            // 匹配题号.答案格式（如 "21. A"）
-            java.util.regex.Pattern numAnswerPattern = java.util.regex.Pattern.compile("^(\\d+)[.．、,，]\\s*([A-Ea-e]+)\\s*(.*)$");
-            java.util.regex.Matcher numAnswerMatcher = numAnswerPattern.matcher(line);
-            
-            if (numAnswerMatcher.find()) {
-                String num = numAnswerMatcher.group(1).trim();
-                String answer = numAnswerMatcher.group(2).toUpperCase();
-                
-                AnswerAnalysis aa = new AnswerAnalysis();
-                aa.setAnswer(answer);
-                answerMap.put(num, aa);
-                currentNum = num;
-                logger.info("匹配题目 {}，答案: {}", num, answer);
-            }
-            // 处理章节标题（如"第二部分 言语理解与表达"）
-            else if (line.matches("^[第]?[一二三四五六七八九十]+[部分编章节]?\\s+.+")) {
-                // 章节标题，重置当前题目状态
-                currentNum = null;
-                currentAnalysis.setLength(0);
-                inAnalysis = false;
-                logger.debug("遇到章节标题: {}", line);
             }
         }
         
@@ -1178,15 +1263,34 @@ public class BatchImportController {
         
         List<ParsedQuestionDTO> questions = request.getQuestions();
         String source = request.getSource();
+        String importStrategy = request.getImportStrategy();
         
-        logger.info("收到保存题目请求，共 {} 道题目，来源: {}", questions.size(), source);
+        if (importStrategy == null) {
+            importStrategy = "skip";
+        }
+        
+        logger.info("收到保存题目请求，共 {} 道题目，来源: {}, 导入策略: {}", 
+                    questions.size(), source, importStrategy);
         
         try {
-            // 将题目导入到 test 表进行测试
-            Map<String, Object> importResult = testImportService.importQuestionsToTest(questions, source);
+            // 根据导入策略执行导入
+            Map<String, Object> importResult;
             
-            logger.info("题目保存到 test 表完成: total={}, saved={}", 
-                        questions.size(), importResult.get("saved"));
+            switch (importStrategy) {
+                case "override":
+                    importResult = testImportService.importQuestionsToTestWithOverride(questions, source);
+                    break;
+                case "all":
+                    importResult = testImportService.importQuestionsToTest(questions, source);
+                    break;
+                case "skip":
+                default:
+                    importResult = testImportService.importQuestionsToTestWithDedup(questions, source, true, "exact", 0.9, List.of("title"));
+                    break;
+            }
+            
+            logger.info("题目保存到 test 表完成: total={}, saved={}, skipped={}", 
+                        questions.size(), importResult.get("saved"), importResult.get("skipped"));
             
             return ResponseEntity.ok(ApiResponse.success(importResult));
             
