@@ -25,4 +25,10 @@ public interface UserDataRepository extends JpaRepository<UserData, Integer> {
      */
     @Query(value = "SELECT data_id, finished FROM user_data ORDER BY finished DESC", nativeQuery = true)
     List<Object[]> findRankingByFinish();
+
+    /**
+     * 查询所有用户的weekData和todayNumber（原生SQL，支持大小写敏感的列名）
+     */
+    @Query(value = "SELECT \"weekData\", \"TodayNumber\" FROM user_data", nativeQuery = true)
+    List<Object[]> findAllWeekDataWithTodayNumber();
 }

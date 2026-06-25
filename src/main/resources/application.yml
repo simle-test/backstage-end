@@ -24,6 +24,7 @@ spring:
       hibernate:
         format_sql: true
         dialect: org.hibernate.dialect.PostgreSQLDialect
+        globally_quoted_identifiers: true
 
 # JWT配置
 jwt:
